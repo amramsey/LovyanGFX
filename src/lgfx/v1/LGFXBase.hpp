@@ -48,13 +48,18 @@ namespace lgfx
 #endif
 //----------------------------------------------------------------------------
 
+#if !defined (ARDUINO) || defined (ARDUINO_ARCH_MBED_RP2040) || defined (ARDUINO_ARCH_RP2040)
+#define LGFX_PRINTF_ENABLED
+#endif
+
+
   class LGFXBase
 #if defined (ARDUINO)
   : public Print
 #endif
   {
   public:
-    LGFXBase(void);
+    LGFXBase(void) = default;
     virtual ~LGFXBase(void) = default;
 
     LGFX_INLINE static constexpr uint8_t  color332(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color332(r, g, b); }
@@ -127,8 +132,6 @@ namespace lgfx
                   void drawBezier      ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     LGFX_INLINE_T void drawBezier      ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3, const T& color)  { setColor(color); drawBezier(x0, y0, x1, y1, x2, y2, x3, y3); }
                   void drawBezier      ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3);
-    LGFX_INLINE_T void drawBezierHelper( int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, const T& color)  { setColor(color); drawBezierHelper(x0, y0, x1, y1, x2, y2); }
-                  void drawBezierHelper( int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     LGFX_INLINE_T void drawEllipseArc  ( int32_t x, int32_t y, int32_t r0x, int32_t r1x, int32_t r0y, int32_t r1y, float angle0, float angle1, const T& color) { setColor(color); drawEllipseArc( x, y, r0x, r1x, r0y, r1y, angle0, angle1); }
                   void drawEllipseArc  ( int32_t x, int32_t y, int32_t r0x, int32_t r1x, int32_t r0y, int32_t r1y, float angle0, float angle1);
     LGFX_INLINE_T void fillEllipseArc  ( int32_t x, int32_t y, int32_t r0x, int32_t r1x, int32_t r0y, int32_t r1y, float angle0, float angle1, const T& color) { setColor(color); fillEllipseArc( x, y, r0x, r1x, r0y, r1y, angle0, angle1); }
@@ -137,7 +140,7 @@ namespace lgfx
                   void drawArc         ( int32_t x, int32_t y, int32_t r0, int32_t r1, float angle0, float angle1)                 {                  drawEllipseArc( x, y, r0, r1, r0, r1, angle0, angle1); }
     LGFX_INLINE_T void fillArc         ( int32_t x, int32_t y, int32_t r0, int32_t r1, float angle0, float angle1, const T& color) { setColor(color); fillEllipseArc( x, y, r0, r1, r0, r1, angle0, angle1); }
                   void fillArc         ( int32_t x, int32_t y, int32_t r0, int32_t r1, float angle0, float angle1)                 {                  fillEllipseArc( x, y, r0, r1, r0, r1, angle0, angle1); }
-    LGFX_INLINE_T void drawCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t cornername                , const T& color)  { setColor(color); drawCircleHelper(x, y, r, cornername    ); }
+    LGFX_INLINE_T void drawCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t cornername                , const T& color) { setColor(color); drawCircleHelper(x, y, r, cornername    ); }
                   void drawCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t cornername);
     LGFX_INLINE_T void fillCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t corners, int32_t delta, const T& color)  { setColor(color); fillCircleHelper(x, y, r, corners, delta); }
                   void fillCircleHelper( int32_t x, int32_t y, int32_t r, uint_fast8_t corners, int32_t delta);
@@ -152,6 +155,12 @@ namespace lgfx
     LGFX_INLINE_T void drawGradientHLine( int32_t x, int32_t y, int32_t w, const T& colorstart, const T& colorend ) { drawGradientLine( x, y, x + w - 1, y, colorstart, colorend ); }
     LGFX_INLINE_T void drawGradientVLine( int32_t x, int32_t y, int32_t h, const T& colorstart, const T& colorend ) { drawGradientLine( x, y, x, y + h - 1, colorstart, colorend ); }
     LGFX_INLINE_T void drawGradientLine ( int32_t x0, int32_t y0, int32_t x1, int32_t y1, const T& colorstart, const T& colorend ) { draw_gradient_line( x0, y0, x1, y1, convert_to_rgb888(colorstart), convert_to_rgb888(colorend) ); }
+
+    LGFX_INLINE_T void fillSmoothRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, const T& color) { setColor(color); fillSmoothRoundRect(x, y, w, h, r); }
+                  void fillSmoothRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r);
+
+    LGFX_INLINE_T void fillSmoothCircle(int32_t x, int32_t y, int32_t r, const T& color) { setColor(color); fillSmoothCircle(x, y, r); }
+                  void fillSmoothCircle(int32_t x, int32_t y, int32_t r) { fillSmoothRoundRect(x-r, y-r, r*2+1, r*2+1, r); }
 
     LGFX_INLINE_T void fillScreen  ( const T& color) { setColor(color); fillRect(0, 0, width(), height()); }
     LGFX_INLINE   void fillScreen  ( void )          {                  fillRect(0, 0, width(), height()); }
@@ -231,6 +240,13 @@ namespace lgfx
       _panel->writePixels(&pc, len, false);
     }
 
+    /// Obtains the current scanning line position.
+    /// 現在の走査線の位置を取得する。;
+    /// @return -1=unsupported. / 0 or more = current scanline position.
+    /// @attention This function returns the raw value obtained from the device. Note that screen rotation and offset are not taken into account.
+    /// @attention この関数はデバイスから得られる生の値を返す。画面の回転やオフセットは考慮されていないことに注意。;
+    int32_t getScanLine(void) { return _panel->getScanLine(); }
+
     uint8_t getRotation(void) const { return _panel->getRotation(); }
     void setRotation(uint_fast8_t rotation);
     void setColorDepth(int bits) { setColorDepth((color_depth_t)(bits & color_depth_t::bit_mask));}
@@ -289,7 +305,6 @@ namespace lgfx
     }
 
     void pushImage(int32_t x, int32_t y, int32_t w, int32_t h, pixelcopy_t *param, bool use_dma = false);
-
 
 //----------------------------------------------------------------------------
 
@@ -411,6 +426,12 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
+    LGFX_INLINE_T void pushGrayscaleImage(int32_t x, int32_t y, int32_t w, int32_t h, const uint8_t* image, color_depth_t depth, const T& forecolor, const T& backcolor) { push_grayimage(x, y, w, h, image, depth, convert_to_rgb888(forecolor), convert_to_rgb888(backcolor)); }
+    LGFX_INLINE_T void pushGrayscaleImageRotateZoom(float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y, int32_t w, int32_t h, const uint8_t* image, color_depth_t depth, const T& forecolor, const T& backcolor) { push_grayimage_rotate_zoom(dst_x, dst_y, src_x, src_y, angle, zoom_x, zoom_y, w, h, image, depth, convert_to_rgb888(forecolor), convert_to_rgb888(backcolor)); }
+    LGFX_INLINE_T void pushGrayscaleImageAffine(const float matrix[6], int32_t w, int32_t h, const uint8_t* image, color_depth_t depth, const T& forecolor, const T& backcolor) { push_grayimage_affine(matrix, w, h, image, depth, convert_to_rgb888(forecolor), convert_to_rgb888(backcolor)); }
+
+//----------------------------------------------------------------------------
+
     /// read RGB565 16bit color
     uint16_t readPixel(int32_t x, int32_t y)
     {
@@ -474,9 +495,9 @@ namespace lgfx
 
 
     [[deprecated("use IFont")]]
-    void setCursor( int32_t x, int32_t y, uint8_t      font) { _filled_x = 0; _cursor_x = x; _cursor_y = y; setFont(fontdata[font]); }
-    void setCursor( int32_t x, int32_t y, const IFont* font) { _filled_x = 0; _cursor_x = x; _cursor_y = y; setFont(font); }
-    void setCursor( int32_t x, int32_t y)                    { _filled_x = 0; _cursor_x = x; _cursor_y = y; }
+    void setCursor( int32_t x, int32_t y, uint8_t      font) { setCursor(x, y); setFont(fontdata[font]); }
+    void setCursor( int32_t x, int32_t y, const IFont* font) { setCursor(x, y); setFont(font); }
+    void setCursor( int32_t x, int32_t y)                    { _decoderState = utf8_state0; _filled_x = 0; _cursor_x = x; _cursor_y = y; }
     int32_t getCursorX(void) const { return _cursor_x; }
     int32_t getCursorY(void) const { return _cursor_y; }
     void setTextStyle(const TextStyle& text_style) { _text_style = text_style; }
@@ -513,6 +534,9 @@ namespace lgfx
     int32_t fontHeight(uint8_t font) const { return (int32_t)(((const BaseFont*)fontdata[font])->height * _text_style.size_y); }
     int32_t fontHeight(const IFont* font) const;
     int32_t fontHeight(void) const { return (int32_t)(_font_metrics.height * _text_style.size_y); }
+    int32_t fontWidth(uint8_t font) const { return (int32_t)(((const BaseFont*)fontdata[font])->width * _text_style.size_x); }
+    int32_t fontWidth(const IFont* font) const;
+    int32_t fontWidth(void) const { return (int32_t)(_font_metrics.width * _text_style.size_x); }
     int32_t textLength(const char *string, int32_t width);
     int32_t textWidth(const char *string) { return textWidth(string, _font); };
     int32_t textWidth(const char *string, const IFont* font);
@@ -664,17 +688,20 @@ namespace lgfx
   //size_t println(const String &s)              { size_t t = print(s); return println() + t; }
   //size_t println(const __FlashStringHelper *s) { size_t t = print(s); return println() + t; }
 
-#ifdef __GNUC__
-    size_t printf(const char* format, ...)  __attribute__((format(printf, 2, 3)));
-#else
-    size_t printf(const char* format, ...);
-#endif
-
     size_t write(const char* str)                 { return (!str) ? 0 : write((const uint8_t*)str, strlen(str)); }
     size_t write(const char *buf, size_t size)    { return write((const uint8_t *) buf, size); }
   #else
     using Print::write;
   #endif
+
+  #if defined (LGFX_PRINTF_ENABLED)
+   #ifdef __GNUC__
+    size_t printf(const char* format, ...)  __attribute__((format(printf, 2, 3)));
+   #else
+    size_t printf(const char* format, ...);
+   #endif
+  #endif
+
     size_t write(const uint8_t *buf, size_t size) { size_t n = 0; this->startWrite(); while (size--) { n += write(*buf++); } this->endWrite(); return n; }
     size_t write(uint8_t utf8);
     size_t vprintf(const char *format, va_list arg);
@@ -687,45 +714,35 @@ namespace lgfx
 #endif
     void qrcode(const char *string, int32_t x = -1, int32_t y = -1, int32_t width = -1, uint8_t version = 1);
 
+  #define LGFX_FUNCTION_GENERATOR(drawImg, draw_img) \
+    protected: \
+    bool draw_img(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum); \
+    public: \
+    bool drawImg(const uint8_t *data, uint32_t len, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
+    { \
+      PointerWrapper data_wrapper; \
+      data_wrapper.set(data, len); \
+      return this->draw_img(&data_wrapper, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
+    } \
+    inline bool drawImg(DataWrapper *data, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left) \
+    { \
+      return this->draw_img(data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum); \
+    } \
 
-    bool drawBmp(const uint8_t *bmp_data, uint32_t bmp_len, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      PointerWrapper data;
-      data.set(bmp_data, bmp_len);
-      return this->draw_bmp(&data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
-    }
-    bool drawJpg(const uint8_t *jpg_data, uint32_t jpg_len, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      PointerWrapper data;
-      data.set(jpg_data, jpg_len);
-      return this->draw_jpg(&data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
-    }
+    LGFX_FUNCTION_GENERATOR(drawBmp, draw_bmp)
+    LGFX_FUNCTION_GENERATOR(drawJpg, draw_jpg)
+    LGFX_FUNCTION_GENERATOR(drawPng, draw_png)
+    LGFX_FUNCTION_GENERATOR(drawQoi, draw_qoi)
+
+  #undef LGFX_FUNCTION_GENERATOR
+
     [[deprecated("use float scale")]] bool drawJpg(const uint8_t *jpg_data, uint32_t jpg_len, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, jpeg_div::jpeg_div_t scale)
     {
       return drawJpg(jpg_data, jpg_len, x, y, maxWidth, maxHeight, offX, offY, 1.0f / (1 << scale));
     }
-    bool drawPng(const uint8_t *png_data, uint32_t png_len, int32_t x = 0, int32_t y = 0, int32_t maxWidth = 0, int32_t maxHeight = 0, int32_t offX = 0, int32_t offY = 0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      PointerWrapper data;
-      data.set(png_data, png_len);
-      return this->draw_png(&data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
-    }
-
-    inline bool drawBmp(DataWrapper *data, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      return this->draw_bmp(data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
-    }
-    inline bool drawJpg(DataWrapper *data, int32_t x=0, int32_t y=0, int32_t maxWidth=0, int32_t maxHeight=0, int32_t offX=0, int32_t offY=0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      return this->draw_jpg(data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
-    }
     [[deprecated("use float scale")]] inline bool drawJpg(DataWrapper *data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, jpeg_div::jpeg_div_t scale)
     {
       return drawJpg(data, x, y, maxWidth, maxHeight, offX, offY, 1.0f / (1 << scale));
-    }
-    inline bool drawPng(DataWrapper *data, int32_t x = 0, int32_t y = 0, int32_t maxWidth = 0, int32_t maxHeight = 0, int32_t offX = 0, int32_t offY = 0, float scale_x = 1.0f, float scale_y = 0.0f, datum_t datum = datum_t::top_left)
-    {
-      return this->draw_png(data, x, y, maxWidth, maxHeight, offX, offY, scale_x, scale_y, datum);
     }
 
     void* createPng( size_t* datalen, int32_t x = 0, int32_t y = 0, int32_t width = 0, int32_t height = 0);
@@ -748,12 +765,12 @@ namespace lgfx
     [[deprecated("use pushPixels")]] void pushColors(const void*     data, int32_t len, bool swap) { startWrite(); writePixels(data, len, swap); endWrite(); }
     [[deprecated("use pushPixels")]] void pushColors(const uint16_t* data, int32_t len, bool swap) { startWrite(); writePixels(data, len, swap); endWrite(); }
 
+    void prepareTmpTransaction(DataWrapper* data);
 //----------------------------------------------------------------------------
 
   protected:
 
     virtual RGBColor* getPalette_impl(void) const { return nullptr; }
-    void prepareTmpTransaction(DataWrapper* data);
 
     IPanel* _panel = nullptr;
 
@@ -773,13 +790,13 @@ namespace lgfx
 
     bool _swapBytes = false;
 
-    enum utf8_decode_state_t
+    enum utf8_decode_state_t : uint8_t
     { utf8_state0 = 0
     , utf8_state1 = 1
     , utf8_state2 = 2
     };
     utf8_decode_state_t _decoderState = utf8_state0;   // UTF8 decoder state
-    uint_fast16_t _unicode_buffer = 0;   // Unicode code-point buffer
+    uint16_t _unicode_buffer = 0;   // Unicode code-point buffer
 
     int32_t _cursor_x = 0;  // print text cursor
     int32_t _cursor_y = 0;
@@ -790,7 +807,7 @@ namespace lgfx
     const IFont* _font = &fonts::Font0;
 
     std::shared_ptr<RunTimeFont> _runtime_font;  // run-time generated font
-    DataWrapper* _font_file = nullptr;
+    std::shared_ptr<DataWrapper> _font_file;  // run-time font file
     PointerWrapper _font_data;
 
     bool _textwrap_x = true;
@@ -842,8 +859,9 @@ namespace lgfx
       }
       else
       {
-        if (dst_depth == rgb565_2Byte) { pc.fp_copy = pixelcopy_t::copy_rgb_fast<swap565_t, T>; }
-        else                           { pc.fp_copy = pixelcopy_t::copy_rgb_fast<rgb332_t, T>; }
+        if (     dst_depth == rgb565_2Byte) { pc.fp_copy = pixelcopy_t::copy_rgb_fast<swap565_t, T>; }
+        else if (dst_depth == rgb332_1Byte) { pc.fp_copy = pixelcopy_t::copy_rgb_fast<rgb332_t, T>; }
+        else                                { pc.fp_copy = pixelcopy_t::copy_rgb_fast<grayscale_t, T>; }
       }
       return pc;
     }
@@ -902,8 +920,9 @@ namespace lgfx
         }
         else
         {
-          if (dst_depth == rgb565_2Byte) { pc.fp_copy = pixelcopy_t::copy_palette_fast<swap565_t, T>; }
-          else                           { pc.fp_copy = pixelcopy_t::copy_palette_fast<rgb332_t, T>; }
+          if (     dst_depth == rgb565_2Byte) { pc.fp_copy = pixelcopy_t::copy_palette_fast<swap565_t, T>; }
+          else if (dst_depth == rgb332_1Byte) { pc.fp_copy = pixelcopy_t::copy_palette_fast<rgb332_t, T>; }
+          else                                { pc.fp_copy = pixelcopy_t::copy_palette_fast<grayscale_t, T>; }
         }
       }
       return pc;
@@ -956,15 +975,25 @@ namespace lgfx
     template<typename T1, typename T2>
     pixelcopy_t create_pc_tr(const T1 *data, const T2& transparent)
     {
-      return create_pc_rawtr( data
-                            , (std::is_same<T1, T2>::value)
-                              ? transparent
-                              : get_fp_convert_src<T2>(get_depth<T1>::value, false)(transparent));
+      return create_pc_rawtr( data, color_convert<T1, T2>((uint32_t)transparent));
     }
 
     template<typename T> pixelcopy_t create_pc_tr(const uint8_t*  data, const T& transparent) { return create_pc_tr(reinterpret_cast<const rgb332_t*>(data), transparent); }
     template<typename T> pixelcopy_t create_pc_tr(const uint16_t* data, const T& transparent) { return create_pc_tr(data, transparent, _swapBytes); }
     template<typename T> pixelcopy_t create_pc_tr(const void*     data, const T& transparent) { return create_pc_tr(data, transparent, _swapBytes); }
+    pixelcopy_t create_pc_tr(const uint16_t* data, const uint16_t& transparent, bool swap)
+    {
+      return swap && _write_conv.bits >= 8 && !hasPalette()
+           ? create_pc_rawtr(reinterpret_cast<const rgb565_t* >(data), getSwap16(transparent))
+           : create_pc_rawtr(reinterpret_cast<const swap565_t*>(data),           transparent);
+    }
+    pixelcopy_t create_pc_tr(const void *data, const uint32_t& transparent, bool swap)
+    {
+      return swap && _write_conv.bits >= 8 && !hasPalette()
+           ? create_pc_rawtr(reinterpret_cast<const rgb888_t*>(data), getSwap24(transparent))
+           : create_pc_rawtr(reinterpret_cast<const bgr888_t*>(data),           transparent);
+    }
+
     template<typename T> pixelcopy_t create_pc_tr(const uint16_t* data, const T& transparent, bool swap)
     {
       return swap && _write_conv.bits >= 8 && !hasPalette()
@@ -993,7 +1022,6 @@ namespace lgfx
       }
       return pc;
     }
-
 
     LGFX_INLINE pixelcopy_t create_pc_antialias(const uint8_t *data, uint32_t raw_transparent = pixelcopy_t::NON_TRANSP)
     {
@@ -1024,10 +1052,7 @@ namespace lgfx
     template<typename T1, typename T2>
     pixelcopy_t create_pc_tr_antialias(const T1* data, const T2& transparent)
     {
-      return create_pc_antialias( data
-                                , std::is_same<T1, T2>::value
-                                  ? transparent
-                                  : get_fp_convert_src<T2>(get_depth<T1>::value, false)(transparent));
+      return create_pc_antialias( data, color_convert<T1, T2>(transparent));
     }
 
     template<typename T>
@@ -1050,12 +1075,16 @@ namespace lgfx
       {
         if (depth == rgb565_2Byte) {
           pc.fp_copy = pixelcopy_t::copy_rgb_antialias<swap565_t>;
-        } else {
+        } else if (depth == rgb332_1Byte) {
           pc.fp_copy = pixelcopy_t::copy_rgb_antialias<rgb332_t>;
+        } else {
+          pc.fp_copy = pixelcopy_t::copy_rgb_antialias<grayscale_t>;
         }
       }
       return pc;
     }
+
+    pixelcopy_t create_pc_gray(const uint8_t *image, lgfx::color_depth_t depth, uint32_t fore_rgb888, uint32_t back_rgb888);
 
 //----------------------------------------------------------------------------
 
@@ -1067,6 +1096,9 @@ namespace lgfx
     void draw_bezier_helper(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void draw_bitmap(int32_t x, int32_t y, const uint8_t *bitmap, int32_t w, int32_t h, uint32_t fg_rawcolor, uint32_t bg_rawcolor = ~0u);
     void draw_xbitmap(int32_t x, int32_t y, const uint8_t *bitmap, int32_t w, int32_t h, uint32_t fg_rawcolor, uint32_t bg_rawcolor = ~0u);
+    void push_grayimage(int32_t x, int32_t y, int32_t w, int32_t h, const uint8_t *image, color_depth_t depth, uint32_t fg_rgb888, uint32_t bg_rgb888);
+    void push_grayimage_rotate_zoom(float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y, int32_t w, int32_t h, const uint8_t* image, color_depth_t depth, uint32_t fg_rgb888, uint32_t bg_rgb888);
+    void push_grayimage_affine(const float* matrix, int32_t w, int32_t h, const uint8_t *image, color_depth_t depth, uint32_t fg_rgb888, uint32_t bg_rgb888);
     void push_image_rotate_zoom(float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y, int32_t w, int32_t h, pixelcopy_t* pc);
     void push_image_rotate_zoom_aa(float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y, int32_t w, int32_t h, pixelcopy_t* pc);
     void push_image_affine(const float* matrix, int32_t w, int32_t h, pixelcopy_t *pc);
@@ -1081,10 +1113,6 @@ namespace lgfx
     size_t draw_string(const char *string, int32_t x, int32_t y, textdatum_t datum, const IFont* font = nullptr);
     int32_t text_width(const char *string, const IFont* font, FontMetrics* metrics);
     bool load_font(lgfx::DataWrapper* data);
-
-    bool draw_bmp(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum);
-    bool draw_jpg(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum);
-    bool draw_png(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum);
 
     static void tmpBeginTransaction(LGFXBase* lgfx)
     {
@@ -1117,7 +1145,7 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  class Panel_Device;
+  struct Panel_Device;
 
   class LGFX_Device : public LovyanGFX
   {
@@ -1177,7 +1205,7 @@ namespace lgfx
       if (index >= count) return 0;
       if (x) *x = tp[index].x;
       if (y) *y = tp[index].y;
-      return index;
+      return count;
     }
 
     template <typename T>

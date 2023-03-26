@@ -27,17 +27,7 @@ Contributors:
 
  #include <sdkconfig.h>
 
- #if defined (CONFIG_IDF_TARGET_ESP32S2)
-
-  #include "LGFX_AutoDetect_ESP32S2.hpp"
-
- #elif defined (CONFIG_IDF_TARGET_ESP32C3)
-
- #else
-
-  #include "LGFX_AutoDetect_ESP32.hpp"
-
- #endif
+ #include "LGFX_AutoDetect_ESP32_all.hpp"
 
 #elif defined (ESP8266)
 
@@ -58,5 +48,13 @@ Contributors:
 #elif __has_include(<opencv2/opencv.hpp>)
 
   #include "LGFX_AutoDetect_OpenCV.hpp"
+
+#elif defined (LGFX_SDL)
+
+  #include "LGFX_AutoDetect_sdl.hpp"
+
+#elif defined (LGFX_LINUX_FB)
+
+  #include "LGFX_AutoDetect_FrameBuffer.hpp"
 
 #endif

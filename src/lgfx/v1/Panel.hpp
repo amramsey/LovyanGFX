@@ -19,7 +19,7 @@ Contributors:
 
 #include <stdint.h>
 
-#if __has_include(<alloca.h>)
+#if __has_include("alloca.h")
 #include <alloca.h>
 #else
 #include <malloc.h>
@@ -63,10 +63,24 @@ namespace lgfx
     
     uint16_t _width = 0;
     uint16_t _height = 0;
-    color_depth_t _write_depth = color_depth_t::rgb565_2Byte;
-    color_depth_t _read_depth  = color_depth_t::rgb565_2Byte;
-    uint8_t _write_bits = 16;
-    uint8_t _read_bits = 16;
+    union
+    {
+      color_depth_t _write_depth = color_depth_t::rgb565_2Byte;
+      struct
+      {
+        uint8_t _write_bits;
+        uint8_t _write_attrib;
+      };
+    };
+    union
+    {
+      color_depth_t _read_depth  = color_depth_t::rgb565_2Byte;
+      struct
+      {
+        uint8_t _read_bits;
+        uint8_t _read_attrib;
+      };
+    };
     uint8_t _rotation = 0;
     epd_mode_t _epd_mode = (epd_mode_t)0;  // EPDでない場合は0。それ以外の場合はEPD描画モード;
     bool _invert = false;
@@ -124,10 +138,14 @@ namespace lgfx
     virtual void writeImageARGB(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, pixelcopy_t* param) = 0;
     virtual void writePixels(pixelcopy_t* param, uint32_t len, bool use_dma) = 0;
 
-    virtual uint32_t readCommand(uint_fast8_t cmd, uint_fast8_t index = 0, uint_fast8_t length = 4) = 0;
+    virtual uint32_t readCommand(uint_fast16_t cmd, uint_fast8_t index = 0, uint_fast8_t length = 4) = 0;
     virtual uint32_t readData(uint_fast8_t index = 0, uint_fast8_t length = 4) = 0;
     virtual void readRect(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, void* dst, pixelcopy_t* param) = 0;
     virtual void copyRect(uint_fast16_t dst_x, uint_fast16_t dst_y, uint_fast16_t w, uint_fast16_t h, uint_fast16_t src_x, uint_fast16_t src_y) = 0;
+
+    /// Obtains the current scanning line position.
+    /// @return -1=unsupported. / 0~height= current scanline position.
+    virtual int32_t getScanLine(void) { return -1; }
 
     virtual void writeFillRectAlphaPreclipped(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, uint32_t argb8888)
     {
@@ -139,7 +157,11 @@ namespace lgfx
     {
       auto ye = y + h;
       auto buf = (RGBColor*)alloca(w * sizeof(RGBColor));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+      /// Not actually used uninitialized. Just grabbing a copy of the pointer before we start the loop that fills it.
       pixelcopy_t pc_write(buf    ,_write_depth, RGBColor::depth, false);
+#pragma GCC diagnostic pop
       pixelcopy_t pc_read( nullptr, RGBColor::depth, _read_depth, false);
       startWrite();
       do

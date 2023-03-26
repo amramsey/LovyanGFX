@@ -18,6 +18,8 @@ Contributors:
 
 #include "LGFX_Sprite.hpp"
 
+#include "misc/common_function.hpp"
+
 #ifdef min
 #undef min
 #endif
@@ -31,54 +33,13 @@ namespace lgfx
  {
 //----------------------------------------------------------------------------
 
-  static void memset_multi(uint8_t* buf, uint32_t c, size_t size, size_t length)
-  {
-    if (size == 1 || ((c & 0xFF) == ((c >> 8) & 0xFF) && (size == 2 || ((c & 0xFF) == ((c >> 16) & 0xFF)))))
-    {
-      memset(buf, c, size * length);
-      return;
-    }
-
-    size_t l = length;
-    if (l & ~0xF)
-    {
-      while ((l >>= 1) & ~0xF);
-      ++l;
-    }
-    size_t len = l * size;
-    length = (length * size) - len;
-    uint8_t* dst = buf;
-    if (size == 2) {
-      do { // 2byte speed tweak
-        *(uint16_t*)dst = c;
-        dst += 2;
-      } while (--l);
-    } else {
-      do {
-        size_t i = 0;
-        do {
-          *dst++ = *(((uint8_t*)&c) + i);
-        } while (++i != size);
-      } while (--l);
-    }
-    if (!length) return;
-    while (length > len) {
-      memcpy(dst, buf, len);
-      dst += len;
-      length -= len;
-      len <<= 1;
-    }
-    if (length) {
-      memcpy(dst, buf, length);
-    }
-  }
-
   void Panel_Sprite::setBuffer(void* buffer, int32_t w, int32_t h, color_conv_t* conv)
   {
     deleteSprite();
 
     _img.reset(buffer);
-    _bitwidth = (w + conv->x_mask) & (~(uint32_t)conv->x_mask);
+    uint32_t x_mask = 7 >> (conv->bits >> 1);
+    _bitwidth = (w + x_mask) & (~x_mask);
     _panel_width = w;
     _xe = w - 1;
     _panel_height = h;
@@ -105,7 +66,8 @@ namespace lgfx
     {
       _panel_width = w;
       _panel_height = h;
-      _bitwidth = (w + conv->x_mask) & (~(uint32_t)conv->x_mask);
+      uint32_t x_mask = 7 >> (conv->bits >> 1);
+      _bitwidth = (w + x_mask) & (~x_mask);
       size_t len = h * (_bitwidth * _write_bits >> 3) + std::max(1, _write_bits >> 3);
 
       _img.reset(len, psram ? AllocationSource::Psram : AllocationSource::Dma);
@@ -127,8 +89,6 @@ namespace lgfx
   {
     _write_depth = depth;
     _read_depth = depth;
-    _write_bits = depth & color_depth_t::bit_mask;
-    _read_bits = _write_bits;
     return depth;
   }
 
@@ -152,10 +112,10 @@ namespace lgfx
 
   void Panel_Sprite::setWindow(uint_fast16_t xs, uint_fast16_t ys, uint_fast16_t xe, uint_fast16_t ye)
   {
-    xs = std::max(0u, std::min<uint_fast16_t>(_width  - 1, xs));
-    xe = std::max(0u, std::min<uint_fast16_t>(_width  - 1, xe));
-    ys = std::max(0u, std::min<uint_fast16_t>(_height - 1, ys));
-    ye = std::max(0u, std::min<uint_fast16_t>(_height - 1, ye));
+    xs = std::max<uint_fast16_t>(0u, std::min<uint_fast16_t>(_width  - 1, xs));
+    xe = std::max<uint_fast16_t>(0u, std::min<uint_fast16_t>(_width  - 1, xe));
+    ys = std::max<uint_fast16_t>(0u, std::min<uint_fast16_t>(_height - 1, ys));
+    ye = std::max<uint_fast16_t>(0u, std::min<uint_fast16_t>(_height - 1, ye));
     _xpos = xs;
     _xs = xs;
     _xe = xe;
@@ -258,6 +218,11 @@ namespace lgfx
         {
           auto img = &_img.img16()[index];
           do { *img = rawcolor;  img += bw; } while (--h);
+        }
+        else if (bits == 32)
+        {
+          auto img = &_img.img32()[index];
+          do { *img = rawcolor; img += bw; } while (--h);
         }
         else
         {

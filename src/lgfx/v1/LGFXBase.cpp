@@ -23,12 +23,14 @@ Contributors:
 #include "../utility/lgfx_pngle.h"
 #include "../utility/lgfx_qrcode.h"
 #include "../utility/lgfx_tjpgd.h"
+#include "../utility/lgfx_qoi.h"
+#include "../utility/pgmspace.h"
 #include "panel/Panel_Device.hpp"
 #include "misc/bitmap.hpp"
-//#include "lgfx_TTFfont.hpp"
 
 #include <stdarg.h>
-#include <cmath>
+#include <stdint.h>
+#include <math.h>
 #include <list>
 
 #ifdef min
@@ -43,12 +45,9 @@ namespace lgfx
  inline namespace v1
  {
 //----------------------------------------------------------------------------
-  static constexpr float deg_to_rad = 0.017453292519943295769236907684886;
-  static constexpr uint8_t FP_SCALE = 16;
-
-  LGFXBase::LGFXBase(void)
-  {
-  }
+  static constexpr const float deg_to_rad = 0.017453292519943295769236907684886;
+  static constexpr const uint8_t FP_SCALE = 16;
+  static constexpr const uint8_t LGFX_ALPHABLEND_NONREADABLE_THRESH = 128;
 
   void LGFXBase::setColorDepth(color_depth_t depth)
   {
@@ -737,8 +736,8 @@ namespace lgfx
         if (cur * sx * sy < 0) {
           xx = -xx; yy = -yy; xy = -xy; cur = -cur;
         }
-        dx = 4.0 * sy * cur * (x1 - x0) + xx - xy;
-        dy = 4.0 * sx * cur * (y0 - y1) + yy - xy;
+        dx = 4.0f * sy * cur * (x1 - x0) + xx - xy;
+        dy = 4.0f * sx * cur * (y0 - y1) + yy - xy;
         xx += xx; yy += yy; err = dx + dy + xy;
         do {
           drawPixel(x0, y0);
@@ -875,6 +874,52 @@ namespace lgfx
     endWrite();
   }
 
+  constexpr float LoAlphaTheshold = 1.0f / 32.0f;
+  constexpr float HiAlphaTheshold = 1.0f - LoAlphaTheshold;
+  void LGFXBase::fillSmoothRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r)
+  {
+    startWrite();
+    int32_t xs = 0;
+    int32_t cx = 0;
+    uint32_t rgb888 = _write_conv.revert_rgb888(_color.raw);
+    // Limit radius to half width or height
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+
+    y += r;
+    h -= 2 * r;
+    fillRect(x, y, w, h);
+    h--;
+    x += r;
+    w -= 2 * r + 1;
+    int32_t r1 = r * r;
+    r++;
+    int32_t r2 = r * r;
+
+    for (int32_t cy = r - 1; cy > 0; cy--)
+    {
+      int32_t dy2 = (r - cy) * (r - cy);
+      for (cx = xs; cx < r; cx++)
+      {
+        int32_t hyp2 = (r - cx) * (r - cx) + dy2;
+        if (hyp2 <= r1) break;
+        if (hyp2 >= r2) continue;
+        float alphaf = (float)r - sqrtf(hyp2);
+        if (alphaf > HiAlphaTheshold) break;
+        xs = cx;
+        if (alphaf < LoAlphaTheshold) continue;
+        uint8_t alpha = alphaf * 255;
+        fillRectAlpha(x + cx - r    , y + cy - r    , 1, 1, alpha, rgb888);
+        fillRectAlpha(x - cx + r + w, y + cy - r    , 1, 1, alpha, rgb888);
+        fillRectAlpha(x - cx + r + w, y - cy + r + h, 1, 1, alpha, rgb888);
+        fillRectAlpha(x + cx - r    , y - cy + r + h, 1, 1, alpha, rgb888);
+      }
+      writeFastHLine(x + cx - r, y + cy - r, 2 * (r - cx) + 1 + w);
+      writeFastHLine(x + cx - r, y - cy + r + h, 2 * (r - cx) + 1 + w);
+    }
+    endWrite();
+  }
+
   void LGFXBase::drawEllipseArc(int32_t x, int32_t y, int32_t r0x, int32_t r1x, int32_t r0y, int32_t r1y, float start, float end)
   {
     if (r0x < r1x) std::swap(r0x, r1x);
@@ -885,13 +930,13 @@ namespace lgfx
     bool equal = fabsf(start - end) < std::numeric_limits<float>::epsilon();
     start = fmodf(start, 360);
     end = fmodf(end, 360);
-    if (start < 0) start += 360.0;
-    if (end < 0) end += 360.0;
+    if (start < 0) start += 360.0f;
+    if (end < 0) end += 360.0f;
 
     startWrite();
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, start, start);
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, end, end);
-    if (!equal && (fabsf(start - end) <= 0.0001)) { start = .0; end = 360.0; }
+    if (!equal && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
     fill_arc_helper(x, y, r0x, r0x, r0y, r0y, start, end);
     fill_arc_helper(x, y, r1x, r1x, r1y, r1y, start, end);
     endWrite();
@@ -907,9 +952,9 @@ namespace lgfx
     bool equal = fabsf(start - end) < std::numeric_limits<float>::epsilon();
     start = fmodf(start, 360);
     end = fmodf(end, 360);
-    if (start < 0) start += 360.0;
-    if (end < 0) end += 360.0;
-    if (!equal && (fabsf(start - end) <= 0.0001)) { start = .0; end = 360.0; }
+    if (start < 0) start += 360.0f;
+    if (end < 0) end += 360.0f;
+    if (!equal && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
 
     startWrite();
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, start, end);
@@ -922,9 +967,9 @@ namespace lgfx
     float e_cos = (cosf(end * deg_to_rad));
     float sslope = s_cos / (sinf(start * deg_to_rad));
     float eslope = -1000000;
-    if (end != 360.0) eslope = e_cos / (sinf(end * deg_to_rad));
-    float swidth =  0.5 / s_cos;
-    float ewidth = -0.5 / e_cos;
+    if (end != 360.0f) eslope = e_cos / (sinf(end * deg_to_rad));
+    float swidth =  0.5f / s_cos;
+    float ewidth = -0.5f / e_cos;
 
     bool start180 = !(start < 180);
     bool end180 = end < 180;
@@ -1016,7 +1061,7 @@ namespace lgfx
       do {
         int32_t ip = i;
         for (;;) {
-          if (!(i & 7)) byte = bitmap[i >> 3];
+          if (!(i & 7)) { byte = pgm_read_byte(&bitmap[i >> 3]); }
           if (fg != (bool)(byte & 0x80) || (++i >= w)) break;
           byte <<= 1;
         }
@@ -1046,7 +1091,7 @@ namespace lgfx
       do {
         int32_t ip = i;
         for (;;) {
-          if (!(i & 7)) byte = bitmap[i >> 3];
+          if (!(i & 7)) { byte = pgm_read_byte(&bitmap[i >> 3]); }
           if (fg != (bool)(byte & 0x01) || (++i >= w)) break;
           byte >>= 1;
         }
@@ -1061,23 +1106,56 @@ namespace lgfx
     endWrite();
   }
 
+  pixelcopy_t LGFXBase::create_pc_gray(const uint8_t *image, lgfx::color_depth_t depth, uint32_t fore_rgb888, uint32_t back_rgb888)
+  {
+    pixelcopy_t pc;
+    pc.src_data = image;
+    pc.fore_rgb888 = fore_rgb888;
+    pc.back_rgb888 = back_rgb888;
+    pc.no_convert = false;
+    pc.src_depth = depth;
+    pc.src_mask  = (1 << (depth & color_depth_t::bit_mask)) - 1;
+    auto dst_depth = getColorDepth();
+    pc.dst_depth = dst_depth;
+    pc.fp_copy = (dst_depth == rgb565_2Byte) ? pixelcopy_t::copy_grayscale_affine<swap565_t>
+               : (dst_depth == rgb332_1Byte) ? pixelcopy_t::copy_grayscale_affine<rgb332_t>
+               : (dst_depth == rgb888_3Byte) ? pixelcopy_t::copy_grayscale_affine<bgr888_t>
+               : (dst_depth == rgb666_3Byte) ? pixelcopy_t::copy_grayscale_affine<bgr666_t>
+               : nullptr;
+
+    return pc;
+  }
+
+  void LGFXBase::push_grayimage(int32_t x, int32_t y, int32_t w, int32_t h, const uint8_t *image, color_depth_t depth, uint32_t fore_rgb888, uint32_t back_rgb888)
+  {
+    pixelcopy_t pc = create_pc_gray(image, depth, fore_rgb888, back_rgb888);
+    pc.src_width = w;
+    pc.src_height = h;
+    pushImage(x, y, w, h, &pc, false);
+  }
+
+  void LGFXBase::push_grayimage_rotate_zoom(float dst_x, float dst_y, float src_x, float src_y, float angle, float zoom_x, float zoom_y, int32_t w, int32_t h, const uint8_t* image, color_depth_t depth, uint32_t fore_rgb888, uint32_t back_rgb888)
+  {
+    pixelcopy_t pc = create_pc_gray(image, depth, fore_rgb888, back_rgb888);
+    push_image_rotate_zoom(dst_x, dst_y, src_x, src_y, angle, zoom_x, zoom_y, w, h, &pc);
+  }
+
+  void LGFXBase::push_grayimage_affine(const float* matrix, int32_t w, int32_t h, const uint8_t *image, color_depth_t depth, uint32_t fore_rgb888, uint32_t back_rgb888)
+  {
+    pixelcopy_t pc = create_pc_gray(image, depth, fore_rgb888, back_rgb888);
+    push_image_affine(matrix, w, h, &pc);
+  }
+
   void LGFXBase::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, pixelcopy_t *param, bool use_dma)
   {
-    param->src_bitwidth = w;
-    if (param->src_bits < 8) {        // get bitwidth
-//      uint32_t x_mask = (1 << (4 - __builtin_ffs(param->src_bits))) - 1;
-//      uint32_t x_mask = (1 << ((~(param->src_bits>>1)) & 3)) - 1;
-      uint32_t x_mask = (param->src_bits == 1) ? 7
-                      : (param->src_bits == 2) ? 3
-                                               : 1;
-      param->src_bitwidth = (w + x_mask) & (~x_mask);
-    }
+    uint32_t x_mask = 7 >> (param->src_bits >> 1);
+    param->src_bitwidth = (w + x_mask) & (~x_mask);
 
     int32_t dx=0, dw=w;
     if (0 < _clip_l - x) { dx = _clip_l - x; dw -= dx; x = _clip_l; }
 
     if (_adjust_width(x, dx, dw, _clip_l, _clip_r - _clip_l + 1)) return;
-    param->src_x = dx;
+    param->src_x32 = param->src_x32_add * dx;
 
     int32_t dy=0, dh=h;
     if (0 < _clip_t - y) { dy = _clip_t - y; dh -= dy; y = _clip_t; }
@@ -1135,13 +1213,8 @@ namespace lgfx
     pc->no_convert = false;
     pc->src_height = h;
     pc->src_width = w;
-    pc->src_bitwidth = w;
-    if (pc->src_bits < 8) {
-      uint32_t x_mask = (pc->src_bits == 1) ? 7
-                      : (pc->src_bits == 2) ? 3
-                                            : 1;
-      pc->src_bitwidth = (w + x_mask) & (~x_mask);
-    }
+    uint32_t x_mask = 7 >> (pc->src_bits >> 1);
+    pc->src_bitwidth = (w + x_mask) & (~x_mask);
     push_image_affine(matrix, pc);
   }
 
@@ -1150,13 +1223,8 @@ namespace lgfx
     pc->no_convert = false;
     pc->src_height = h;
     pc->src_width = w;
-    pc->src_bitwidth = w;
-    if (pc->src_bits < 8) {
-      uint32_t x_mask = (pc->src_bits == 1) ? 7
-                           : (pc->src_bits == 2) ? 3
-                                                 : 1;
-      pc->src_bitwidth = (w + x_mask) & (~x_mask);
-    }
+    uint32_t x_mask = 7 >> (pc->src_bits >> 1);
+    pc->src_bitwidth = (w + x_mask) & (~x_mask);
     pixelcopy_t pc_post;
     auto dst_depth = getColorDepth();
     pc_post.dst_bits = _write_conv.bits;
@@ -1425,7 +1493,10 @@ namespace lgfx
     int32_t dst_y = src_y + dy;
 
     startWrite();
-    _panel->copyRect(dst_x, dst_y, w, h, src_x, src_y);
+    if (w && h)
+    {
+      _panel->copyRect(dst_x, dst_y, w, h, src_x, src_y);
+    }
 
     if (     dx > 0) writeFillRectPreclipped(_sx           , dst_y,  dx, h);
     else if (dx < 0) writeFillRectPreclipped(_sx + _sw + dx, dst_y, -dx, h);
@@ -1582,8 +1653,7 @@ namespace lgfx
           p.src_y32_add = 0;
           _panel->readRect(cl, newy, w, 1, linebufs[bidx], &p);
         }
-        auto linebuf = &linebufs[bidx][- cl];
-        paint_add_points(points, lx ,rx, newy, ly, linebuf);
+        paint_add_points(points, lx ,rx, newy, ly, &linebufs[bidx][- cl]);
       } while (++i < 2);
     }
     size_t i = 0;
@@ -1621,8 +1691,8 @@ namespace lgfx
 
   static char* floatToStr(double number, char* buf, size_t /*buflen*/, uint8_t digits)
   {
-    if (std::isnan(number))    { return (char*)memcpy(buf, "nan\0", 4); }
-    if (std::isinf(number))    { return (char*)memcpy(buf, "inf\0", 4); }
+    if (isnan(number))    { return (char*)memcpy(buf, "nan\0", 4); }
+    if (isinf(number))    { return (char*)memcpy(buf, "inf\0", 4); }
     if (number > 4294967040.0) { return (char*)memcpy(buf, "ovf\0", 4); } // constant determined empirically
     if (number <-4294967040.0) { return (char*)memcpy(buf, "ovf\0", 4); } // constant determined empirically
 
@@ -1724,6 +1794,14 @@ namespace lgfx
     font->getDefaultMetric(&fm);
     int32_t sy = 65536 * _text_style.size_y;
     return (fm.height * sy) >> 16;
+  }
+
+  int32_t LGFXBase::fontWidth(const IFont* font) const
+  {
+    FontMetrics fm;
+    font->getDefaultMetric(&fm);
+    int32_t sx = 65536 * _text_style.size_x;
+    return (fm.width * sx) >> 16;
   }
 
   int32_t LGFXBase::textLength(const char *string, int32_t width)
@@ -1983,7 +2061,6 @@ namespace lgfx
       }
       else
       {
-        int32_t sx = 65536 * _text_style.size_x;
         _font->updateFontMetric(&_font_metrics, uniCode);
         _cursor_x += (_font_metrics.x_advance * sx) >> 16;
       }
@@ -2006,8 +2083,8 @@ namespace lgfx
     return write(floatToStr(number, buf, len, digits));
   }
 
-#if !defined (ARDUINO)
-  size_t LGFXBase::printf(const char * __restrict format, ...) 
+#if defined (LGFX_PRINTF_ENABLED)
+  size_t LGFXBase::printf(const char * __restrict format, ...)
   {
     va_list arg;
     va_start(arg, format);
@@ -2194,7 +2271,124 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  bool LGFXBase::draw_bmp(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum)
+  struct image_info_t
+  {
+    LGFXBase* gfx;
+    int32_t x;
+    int32_t y;
+    int32_t maxWidth;
+    int32_t maxHeight;
+    int32_t offX;
+    int32_t offY;
+    float zoom_x;
+    float zoom_y;
+    datum_t datum;
+
+  protected:
+    int32_t _cl;
+    int32_t _ct;
+    int32_t _cw;
+    int32_t _ch;
+
+  public:
+
+    void end(void)
+    {
+      gfx->setClipRect(_cl, _ct, _cw, _ch);
+    }
+
+    bool begin( LGFXBase* gfx_
+              , int32_t x_
+              , int32_t y_
+              , int32_t maxWidth_
+              , int32_t maxHeight_
+              , int32_t offX_
+              , int32_t offY_
+              , float zoom_x_
+              , float zoom_y_
+              , datum_t datum_
+              , int32_t w_, int32_t h_)
+    {
+      gfx_->getClipRect(&_cl, &_ct, &_cw, &_ch);
+
+      if (zoom_y_ <= 0.0f || zoom_x_ <= 0.0f)
+      {
+        float fit_width  = (maxWidth_  > 0) ? maxWidth_  : gfx_->width();
+        float fit_height = (maxHeight_ > 0) ? maxHeight_ : gfx_->height();
+        if (zoom_x_ <= -1.0f) { zoom_x_ = fit_width  / w_; }
+        if (zoom_y_ <= -1.0f) { zoom_y_ = fit_height / h_; }
+        if (zoom_x_ <= 0.0f)
+        {
+          if (zoom_y_ <= 0.0f)
+          {
+            zoom_y_ = std::min<float>(fit_width / w_, fit_height / h_);
+          }
+          zoom_x_ = zoom_y_;
+        }
+        if (zoom_y_ <= 0.0f)
+        {
+          zoom_y_ = zoom_x_;
+        }
+      }
+
+      if (datum_)
+      {
+        if (datum_ & (datum_t::top_center | datum_t::top_right))
+        {
+          float fit_width  = (maxWidth_  > 0) ? maxWidth_  : gfx_->width();
+          float fw = fit_width - w_ * zoom_x_;
+          if (datum_ & datum_t::top_center) { fw /= 2; }
+          offX_ -= fw;
+        }
+        if (datum_ & (datum_t::middle_left | datum_t::bottom_left | datum_t::baseline_left))
+        {
+          float fit_height = (maxHeight_ > 0) ? maxHeight_ : gfx_->height();
+          float fh = fit_height - h_ * zoom_y_;
+          if (datum_ & datum_t::middle_left) { fh /= 2; }
+          offY_ -= fh;
+        }
+      }
+
+      if (maxWidth_ <= 0) { maxWidth_ = INT16_MAX; }
+      int32_t right = x_ + maxWidth_;
+      const int32_t cr = _cw + _cl;
+      if (right > cr) { right = cr; }
+      if (x_ < _cl) { offX_ -= x_ - _cl; x_ = _cl; }
+      if (offX_ < 0) { x_ -= offX_; offX_ = 0; }
+      if (maxWidth_ > right - x_) { maxWidth_ = right - x_; }
+      int32_t ww = ((int32_t)ceilf(w_ * zoom_x_)) - offX_;
+      if (maxWidth_ > ww) { maxWidth_ = ww; }
+
+      if (maxHeight_ <= 0) { maxHeight_ = INT16_MAX; }
+      int32_t bottom = y_ + maxHeight_;
+      const int32_t cb = _ch + _ct;
+      if (bottom > cb) { bottom = cb; }
+      if (y_ < _ct) { offY_ -= y_ - _ct; y_ = _ct; }
+      if (offY_ < 0) { y_ -= offY_; offY_ = 0; }
+      if (maxHeight_ > bottom - y_) { maxHeight_ = bottom - y_; }
+      int32_t hh = ((int32_t)ceilf(h_ * zoom_y_)) - offY_;
+      if (maxHeight_ > hh) { maxHeight_ = hh; }
+
+      this->gfx       = gfx_      ;
+      this->x         = x_        ;
+      this->y         = y_        ;
+      this->maxWidth  = maxWidth_ ;
+      this->maxHeight = maxHeight_;
+      this->offX      = offX_     ;
+      this->offY      = offY_     ;
+      this->zoom_x    = zoom_x_   ;
+      this->zoom_y    = zoom_y_   ;
+      this->datum     = datum_    ;
+
+      if (maxWidth_  <= 0) return false;
+      if (maxHeight_ <= 0) return false;
+
+      gfx_->setClipRect(x_, y_, maxWidth_, maxHeight_);
+      return true;
+    }
+  };
+
+  bool LGFXBase::draw_bmp(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float zoom_x, float zoom_y, datum_t datum)
   {
     prepareTmpTransaction(data);
     bitmap_header_t bmpdata;
@@ -2207,175 +2401,133 @@ namespace lgfx
     int32_t w = bmpdata.biWidth;
     int32_t h = abs(bmpdata.biHeight);  // bcHeight Image height (pixels)
 
-    const auto cl = this->_clip_l;
-    const auto cr = this->_clip_r + 1;
-    const auto ct = this->_clip_t;
-    const auto cb = this->_clip_b + 1;
-
-    if (scale_y <= 0.0f || scale_x <= 0.0f)
+    image_info_t info;
+    if (!info.begin( this
+                   , x
+                   , y
+                   , maxWidth
+                   , maxHeight
+                   , offX
+                   , offY
+                   , zoom_x
+                   , zoom_y
+                   , datum
+                   , w, h))
     {
-      float fit_width  = (maxWidth  > 0) ? maxWidth  : cr - cl;
-      float fit_height = (maxHeight > 0) ? maxHeight : cb - ct;
-
-      if (scale_x <= -1.0f) { scale_x = fit_width  / w; }
-      if (scale_y <= -1.0f) { scale_y = fit_height / h; }
-      if (scale_x <= 0.0f)
-      {
-        if (scale_y <= 0.0f)
-        {
-          scale_y = std::min<float>(fit_width / w, fit_height / h);
-        }
-        scale_x = scale_y;
-      }
-      if (scale_y <= 0.0f)
-      {
-        scale_y = scale_x;
-      }
-    }
-    if (maxWidth  <= 0) maxWidth  = (cr - cl) - x;
-    if (maxHeight <= 0) maxHeight = (cb - ct) - y;
-
-    auto clip_x = x;
-    auto clip_y = y;
-
-    if (datum)
-    {
-      if (datum & (datum_t::top_center | datum_t::top_right))
-      {
-        float fw = maxWidth - (w * scale_x);
-        if (datum & datum_t::top_center) { fw /= 2; }
-        x += fw;
-      }
-      if (datum & (datum_t::middle_left | datum_t::bottom_left | datum_t::baseline_left))
-      {
-        float fh = maxHeight - (h * scale_y);
-        if (datum & datum_t::middle_left) { fh /= 2; }
-        y += fh;
-      }
+      return true;
     }
 
-    if (0 > clip_x - cl) { maxWidth += clip_x - cl; clip_x = cl; }
-    if (maxWidth > (cr - clip_x)) maxWidth = (cr - clip_x);
-
-    if (0 > clip_y - ct) { maxHeight += clip_y - ct; clip_y = ct; }
-    if (maxHeight > (cb - clip_y)) maxHeight = (cb - clip_y);
-
-    if (maxWidth > 0 && maxHeight > 0)
-    {
-      this->setClipRect(clip_x, clip_y, maxWidth, maxHeight);
-      argb8888_t *palette = nullptr;
-      if (bpp <= 8) {
-        palette = (argb8888_t*)heap_alloc(sizeof(argb8888_t*) * (1 << bpp));
-        data->seek(bmpdata.biSize + 14);
-        data->read((uint8_t*)palette, (1 << bpp)*sizeof(argb8888_t)); // load palette
-      }
-
-      data->seek(seekOffset);
-
-      auto dst_depth = this->_write_conv.depth;
-      uint32_t buffersize = ((w * bpp + 31) >> 5) << 2;  // readline 4Byte align.
-      auto lineBuffer = (uint8_t*)alloca(buffersize + 4);
-
-      pixelcopy_t p(lineBuffer, dst_depth, (color_depth_t)bpp, this->_palette_count, palette);
-      p.no_convert = false;
-      if (8 >= bpp && !this->_palette_count) {
-        p.fp_copy = pixelcopy_t::get_fp_copy_palette_affine<argb8888_t>(dst_depth);
-      } else {
-        if (bpp == 16) {
-          p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<rgb565_t>(dst_depth);
-        } else if (bpp == 24) {
-          p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<rgb888_t>(dst_depth);
-        } else if (bpp == 32) {
-          p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<argb8888_t>(dst_depth);
-        }
-      }
-      p.src_x32_add = (1u << FP_SCALE) / scale_x;
-
-        //If the value of Height is positive, the image data is from bottom to top
-        //If the value of Height is negative, the image data is from top to bottom.
-      int32_t flow = (bmpdata.biHeight > 0) ? -1 : 1;
-      if (bmpdata.biHeight > 0) y += ceilf(h * scale_y) - 1;
-
-      x -= offX;
-      y -= offY;
-
-      int32_t y32 = (y << FP_SCALE);
-      int32_t dst_y32_add = (1u << FP_SCALE) * scale_y;
-      if (bmpdata.biHeight > 0) dst_y32_add = - dst_y32_add;
-
-      this->startWrite(!data->hasParent());
-
-      float affine[6] = { scale_x, 0.0f, (float)x, 0.0f, 1.0f, 0.0f };
-      p.src_bitwidth = w;
-      p.src_width = w;
-      p.src_height = 1;
-
-      do
-      {
-        data->preRead();
-        if (bmpdata.biCompression == 1)
-        {
-          bmpdata.load_bmp_rle8(data, lineBuffer, w);
-        } else
-        if (bmpdata.biCompression == 2)
-        {
-          bmpdata.load_bmp_rle4(data, lineBuffer, w);
-        }
-        else
-        {
-          data->read(lineBuffer, buffersize);
-        }
-        data->postRead();
-        y32 += dst_y32_add;
-        int32_t next_y = y32 >> FP_SCALE;
-        while (y != next_y)
-        {
-          p.src_x32 = 0;
-          affine[5] = y;
-          this->push_image_affine(affine, &p);
-          y += flow;
-        }
-      } while (--h);
-
-      if (palette != nullptr) heap_free(palette);
-      this->_clip_l = cl;
-      this->_clip_t = ct;
-      this->_clip_r = cr-1;
-      this->_clip_b = cb-1;
-      this->endWrite();
+    argb8888_t *palette = nullptr;
+    if (bpp <= 8) {
+      palette = (argb8888_t*)alloca(sizeof(argb8888_t*) * (1 << bpp));
+      if (!palette) { return false; }
+      data->seek(bmpdata.biSize + 14);
+      data->read((uint8_t*)palette, (1 << bpp)*sizeof(argb8888_t)); // load palette
     }
+
+    x = info.x - info.offX;
+    y = info.y - info.offY;
+    zoom_x = info.zoom_x;
+    zoom_y = info.zoom_y;
+
+    data->seek(seekOffset);
+
+    auto dst_depth = this->_write_conv.depth;
+    uint32_t buffersize = ((w * bpp + 31) >> 5) << 2;  // readline 4Byte align.
+    auto lineBuffer = (uint8_t*)alloca(buffersize + 4);
+
+    pixelcopy_t p(lineBuffer, dst_depth, (color_depth_t)bpp, this->_palette_count, palette);
+    p.no_convert = false;
+    if (8 >= bpp && !this->_palette_count) {
+      p.fp_copy = pixelcopy_t::get_fp_copy_palette_affine<argb8888_t>(dst_depth);
+    } else {
+      if (bpp == 16) {
+        p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<rgb565_t>(dst_depth);
+      } else if (bpp == 24) {
+        p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<rgb888_t>(dst_depth);
+      } else if (bpp == 32) {
+        p.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<argb8888_t>(dst_depth);
+      }
+    }
+    p.src_x32_add = (1u << FP_SCALE) / zoom_x;
+
+      //If the value of Height is positive, the image data is from bottom to top
+      //If the value of Height is negative, the image data is from top to bottom.
+    int32_t flow = (bmpdata.biHeight > 0) ? -1 : 1;
+    if (bmpdata.biHeight > 0) y += ceilf(h * zoom_y) - 1;
+
+    int32_t y32 = (y << FP_SCALE);
+    int32_t dst_y32_add = (1u << FP_SCALE) * zoom_y;
+    if (bmpdata.biHeight > 0) dst_y32_add = - dst_y32_add;
+
+    this->startWrite(!data->hasParent());
+
+    float affine[6] = { zoom_x, 0.0f, (float)x, 0.0f, 1.0f, 0.0f };
+    p.src_bitwidth = w;
+    p.src_width = w;
+    p.src_height = 1;
+
+    do
+    {
+      data->preRead();
+      if (bmpdata.biCompression == 1)
+      {
+        bmpdata.load_bmp_rle8(data, lineBuffer, w);
+      } else
+      if (bmpdata.biCompression == 2)
+      {
+        bmpdata.load_bmp_rle4(data, lineBuffer, w);
+      }
+      else
+      {
+        data->read(lineBuffer, buffersize);
+      }
+      data->postRead();
+      y32 += dst_y32_add;
+      int32_t next_y = y32 >> FP_SCALE;
+      while (y != next_y)
+      {
+        p.src_x32 = 0;
+        affine[5] = y;
+        this->push_image_affine(affine, &p);
+        y += flow;
+      }
+    } while (--h);
+
+    info.end();
+
+    this->endWrite();
+
     return true;
   }
 
 
-  struct draw_jpg_info_t
+  struct image_decoder_t : public image_info_t
   {
-    int32_t x;
-    int32_t y;
-    DataWrapper *data;
-    LGFXBase *lgfx;
-    pixelcopy_t *pc;
-    float zoom_x;
-    float zoom_y;
+    DataWrapper* data;
+
+    static uint32_t read_data(void* self, uint8_t* buf, uint32_t len)
+    {
+      auto data = ((image_decoder_t*)self)->data;
+      auto res = len;
+      data->preRead();
+      if (buf) {
+        res = data->read(buf, len, (len > 1) ? 2 : 1);
+      } else {
+        data->skip(len);
+      }
+      return res;
+    }
   };
 
-  static uint32_t jpg_read_data(lgfxJdec  *decoder, uint8_t *buf, uint32_t len)
+  struct draw_jpg_info_t : public image_decoder_t
   {
-    auto jpeg = (draw_jpg_info_t *)decoder->device;
-    auto data = (DataWrapper*)jpeg->data;
-    auto res = len;
-    data->preRead();
-    if (buf) {
-      res = data->read(buf, len);
-    } else {
-      data->skip(len);
-    }
-    return res;
-  }
+    pixelcopy_t *pc;
+  };
 
-  static uint32_t jpg_push_image(lgfxJdec *decoder, void *bitmap, JRECT *rect)
+  static uint32_t jpg_push_image(void *device, void *bitmap, JRECT *rect)
   {
-    draw_jpg_info_t *jpeg = static_cast<draw_jpg_info_t*>(decoder->device);
+    draw_jpg_info_t *jpeg = static_cast<draw_jpg_info_t*>(device);
     jpeg->pc->src_data = bitmap;
     auto data = static_cast<DataWrapper*>(jpeg->data);
     data->postRead();
@@ -2383,18 +2535,20 @@ namespace lgfx
     int32_t y = rect->top;
     int32_t w = rect->right  - rect->left + 1;
     int32_t h = rect->bottom - rect->top + 1;
-    jpeg->lgfx->pushImage( jpeg->x + x
-                         , jpeg->y + y
-                         , w
-                         , h
-                         , jpeg->pc
-                         , false);
+    jpeg->pc->src_x32_add = 1 << FP_SCALE;
+    jpeg->pc->src_y32_add = 0;
+    jpeg->gfx->pushImage( jpeg->x + x
+                        , jpeg->y + y
+                        , w
+                        , h
+                        , jpeg->pc
+                        , false);
     return 1;
   }
 
-  static uint32_t jpg_push_image_affine(lgfxJdec *decoder, void *bitmap, JRECT *rect)
+  static uint32_t jpg_push_image_affine(void *device, void *bitmap, JRECT *rect)
   {
-    draw_jpg_info_t *jpeg = static_cast<draw_jpg_info_t*>(decoder->device);
+    draw_jpg_info_t *jpeg = static_cast<draw_jpg_info_t*>(device);
     jpeg->pc->src_data = bitmap;
     auto data = static_cast<DataWrapper*>(jpeg->data);
     data->postRead();
@@ -2407,447 +2561,506 @@ namespace lgfx
     { jpeg->zoom_x, 0.0f , x * jpeg->zoom_x + jpeg->x
     , 0.0f , jpeg->zoom_y, y * jpeg->zoom_y + jpeg->y
     };
-    jpeg->lgfx->pushImageAffine( affine, w, h, (bgr888_t*)jpeg->pc->src_data );
+    jpeg->gfx->pushImageAffine( affine, w, h, (bgr888_t*)jpeg->pc->src_data );
     return 1;
   }
 
-  bool LGFXBase::draw_jpg(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum)
+  bool LGFXBase::draw_jpg(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float zoom_x, float zoom_y, datum_t datum)
   {
     prepareTmpTransaction(data);
-    draw_jpg_info_t jpeg;
+    draw_jpg_info_t drawinfo;
     pixelcopy_t pc(nullptr, this->getColorDepth(), bgr888_t::depth, this->hasPalette());
-    jpeg.pc = &pc;
-    jpeg.lgfx = this;
-    jpeg.data = data;
-    jpeg.x = x - offX;
-    jpeg.y = y - offY;
+    drawinfo.pc = &pc;
+    drawinfo.data = data;
 
     //TJpgD jpegdec;
     lgfxJdec jpegdec;
 
-    static constexpr uint16_t sz_pool = 3100;
+    static constexpr uint16_t sz_pool = 3900;
     uint8_t *pool = (uint8_t*)heap_alloc_dma(sz_pool);
     if (!pool)
     {
+      // ESP_LOGW("LGFX", "jpeg memory alloc fail");
       return false;
     }
 
-    auto jres = lgfx_jd_prepare(&jpegdec, jpg_read_data, pool, sz_pool, &jpeg);
+    auto jres = lgfx_jd_prepare(&jpegdec, drawinfo.read_data, pool, sz_pool, &drawinfo);
 
     if (jres != JDR_OK)
+    {
+      // ESP_LOGW("LGFX", "jpeg prepare error:%x", jres);
+      heap_free(pool);
+      return false;
+    }
+
+    if (!drawinfo.begin( this
+                       , x
+                       , y
+                       , maxWidth
+                       , maxHeight
+                       , offX
+                       , offY
+                       , zoom_x
+                       , zoom_y
+                       , datum
+                       , jpegdec.width, jpegdec.height))
     {
       heap_free(pool);
       return false;
     }
 
-    const auto cl = this->_clip_l;
-    const auto cr = this->_clip_r + 1;
-    const auto ct = this->_clip_t;
-    const auto cb = this->_clip_b + 1;
-
-    if (scale_y <= 0.0f || scale_x <= 0.0f)
-    {
-      float fit_width  = (maxWidth  > 0) ? maxWidth  : cr - cl;
-      float fit_height = (maxHeight > 0) ? maxHeight : cb - ct;
-
-      if (scale_x <= -1.0f) { scale_x = fit_width  / jpegdec.width; }
-      if (scale_y <= -1.0f) { scale_y = fit_height / jpegdec.height; }
-      if (scale_x <= 0.0f)
-      {
-        if (scale_y <= 0.0f)
-        {
-          scale_y = std::min<float>(fit_width / jpegdec.width, fit_height / jpegdec.height);
-        }
-        scale_x = scale_y;
-      }
-      if (scale_y <= 0.0f)
-      {
-        scale_y = scale_x;
-      }
-    }
-    if (maxWidth  <= 0) maxWidth  = (cr - cl) - x;
-    if (maxHeight <= 0) maxHeight = (cb - ct) - y;
-
-    if (datum)
-    {
-      if (datum & (datum_t::top_center | datum_t::top_right))
-      {
-        float w = maxWidth - (jpegdec.width * scale_x);
-        if (datum & datum_t::top_center) { w /= 2; }
-        jpeg.x += w;
-      }
-      if (datum & (datum_t::middle_left | datum_t::bottom_left | datum_t::baseline_left))
-      {
-        float h = maxHeight - (jpegdec.height * scale_y);
-        if (datum & datum_t::middle_left) { h /= 2; }
-        jpeg.y += h;
-      }
-    }
+    if (drawinfo.offX) { drawinfo.x -= drawinfo.offX; drawinfo.offX = 0; }
+    if (drawinfo.offY) { drawinfo.y -= drawinfo.offY; drawinfo.offY = 0; }
 
     jpeg_div::jpeg_div_t div = jpeg_div::jpeg_div_t::JPEG_DIV_NONE;
-    float scale_max = std::max(scale_x, scale_y);
+    float scale_max = std::max(drawinfo.zoom_x, drawinfo.zoom_y);
     if (scale_max <= 0.5f)
     {
       if (     scale_max <= 0.125f) { div = jpeg_div::jpeg_div_t::JPEG_DIV_8; }
       else if (scale_max <= 0.25f)  { div = jpeg_div::jpeg_div_t::JPEG_DIV_4; }
       else                          { div = jpeg_div::jpeg_div_t::JPEG_DIV_2; }
 
-      scale_x *= 1 << div;
-      scale_y *= 1 << div;
+      drawinfo.zoom_x *= 1 << div;
+      drawinfo.zoom_y *= 1 << div;
     }
 
-    jpeg.zoom_x = scale_x;
-    jpeg.zoom_y = scale_y;
+    this->startWrite(!data->hasParent());
 
-    if (0 > x - cl) { maxWidth += x - cl; x = cl; }
-    if (maxWidth > (cr - x)) maxWidth = (cr - x);
+    jres = lgfx_jd_decomp(&jpegdec, drawinfo.zoom_x == 1.0f && drawinfo.zoom_y == 1.0f ? jpg_push_image : jpg_push_image_affine, div);
 
-    if (0 > y - ct) { maxHeight += y - ct; y = ct; }
-    if (maxHeight > (cb - y)) maxHeight = (cb - y);
+    drawinfo.end();
+    this->endWrite();
+    drawinfo.data->preRead();
 
-    if (maxWidth > 0 && maxHeight > 0)
-    {
-      this->setClipRect(x, y, maxWidth, maxHeight);
-      this->startWrite(!data->hasParent());
-
-      jres = lgfx_jd_decomp(&jpegdec, jpeg.zoom_x == 1.0f && jpeg.zoom_y == 1.0f ? jpg_push_image : jpg_push_image_affine, div);
-
-      this->_clip_l = cl;
-      this->_clip_t = ct;
-      this->_clip_r = cr-1;
-      this->_clip_b = cb-1;
-      this->endWrite();
-    }
     heap_free(pool);
 
     if (jres != JDR_OK) {
-//ESP_LOGE("LGFX","jpeg decomp error:%x", jres);
+      // ESP_LOGW("LGFX", "jpeg decomp error:%x", jres);
       return false;
     }
     return true;
   }
 
-
-  struct png_file_decoder_t
+  struct png_file_decoder_t : public image_decoder_t
   {
-    int32_t x;
-    int32_t y;
-    int32_t offX;
-    int32_t offY;
-    int32_t maxWidth;
-    int32_t maxHeight;
-    float zoom_x;
-    float zoom_y;
-    datum_t datum;
-    bgr888_t* lineBuffer;
+    bgra8888_t* lineBuffer;
     pixelcopy_t *pc;
-    LGFXBase *gfx;
-    uint32_t last_pos;
-    uint32_t last_x;
-    int32_t scale_y0;
-    int32_t scale_y1;
-    bool done;
   };
 
-  static bool png_ypos_update(png_file_decoder_t *p, uint32_t y)
-  {
-    p->last_pos = y;
-    p->scale_y0 = ceilf( y      * p->zoom_y) - p->offY;
-    if (p->scale_y0 < 0) p->scale_y0 = 0;
-    p->scale_y1 = ceilf((y + 1) * p->zoom_y) - p->offY;
-    if (p->scale_y1 > p->maxHeight) p->scale_y1 = p->maxHeight;
-    return (p->scale_y0 < p->scale_y1);
-  }
+//-----
 
-  static void png_post_line(png_file_decoder_t *p)
-  {
-    int32_t h = p->scale_y1 - p->scale_y0;
-    if (0 < h)
-      p->gfx->pushImage(p->x, p->y + p->scale_y0, p->maxWidth, h, p->pc, true);
-  }
 
-  static void png_prepare_line(png_file_decoder_t *p, uint32_t y)
+  static void png_draw_alpha_callback(void *user_data, uint32_t x, uint32_t y, uint_fast8_t div_x, size_t len, const uint8_t* argb)
   {
-    if (png_ypos_update(p, y))      // read next line
-      p->gfx->readRectRGB(p->x, p->y + p->scale_y0, p->maxWidth, p->scale_y1 - p->scale_y0, p->lineBuffer);
-  }
+    auto p = (png_file_decoder_t*)user_data;
 
-  static void png_done_callback(pngle_t *pngle)
-  {
-    auto p = (png_file_decoder_t *)lgfx_pngle_get_user_data(pngle);
-    p->done = true;
-    if (p->lineBuffer)
+    int32_t y0 = (int32_t)y - p->offY;
+    int32_t y1 = y0 + 1;
+    if (y0 < 0) y0 = 0;
+    if (y1 > p->maxHeight) y1 = p->maxHeight;
+    if (y0 >= y1) return;
+
+    while (argb[0] == 0)
     {
-      png_post_line(p);
+      argb += 4;
+      x += div_x;
+      if (0 == --len) { return; }
     }
-  }
-
-  static void png_draw_normal_callback(pngle_t *pngle, uint32_t x, uint32_t y, uint8_t rgba[4])
-  {
-    auto p = (png_file_decoder_t*)lgfx_pngle_get_user_data(pngle);
-
-    int32_t l = x - p->offX;
-    if (l < 0 || l >= p->maxWidth) return;
-    x = p->x + l;
-
-    if (x != p->last_pos) {
-      int32_t t = y - p->offY;
-      if (t < 0 || t >= p->maxHeight) return;
-      p->gfx->setAddrWindow(x, p->y + t, p->maxWidth, 1);
-    }
-    p->last_pos = x + 1;
-    p->gfx->writeColor(color888(rgba[0], rgba[1], rgba[2]), 1);
-  }
-
-  static void png_draw_normal_scale_callback(pngle_t *pngle, uint32_t x, uint32_t y, uint8_t rgba[4])
-  {
-    auto p = (png_file_decoder_t*)lgfx_pngle_get_user_data(pngle);
-
-    if (y != p->last_pos) {
-      png_ypos_update(p, y);
-    }
-
-    int32_t t = p->scale_y0;
-    int32_t h = p->scale_y1 - t;
-    if (h <= 0) return;
-
-    int32_t l = ceilf( x      * p->zoom_x) - p->offX;
-    if (l < 0) l = 0;
-    int32_t r = ceilf((x + 1) * p->zoom_x) - p->offX;
-    if (r > p->maxWidth) r = p->maxWidth;
-    if (l >= r) return;
-
-    p->gfx->setColor(color888(rgba[0], rgba[1], rgba[2]));
-    p->gfx->writeFillRectPreclipped(p->x + l, p->y + t, r - l, h);
-  }
-
-  static void png_draw_alpha_callback(pngle_t *pngle, uint32_t x, uint32_t y, uint8_t rgba[4])
-  {
-    auto p = (png_file_decoder_t*)lgfx_pngle_get_user_data(pngle);
-    if (y != p->last_pos) {
-      png_post_line(p);
-      png_prepare_line(p, y);
-    }
-
-    if (p->scale_y0 >= p->scale_y1) return;
-
-    int32_t l = std::max<int32_t>(( x      ) - p->offX, 0);
-    int32_t r = std::min<int32_t>(((x + 1) ) - p->offX, p->maxWidth);
-    if (l >= r) return;
-
-    if (rgba[3] == 255) {
-      memcpy(&p->lineBuffer[l], rgba, 3);
-    } else {
-      auto data = &p->lineBuffer[l];
-      uint_fast8_t inv = 256 - rgba[3];
-      uint_fast8_t alpha = rgba[3] + 1;
-      data->r = (rgba[0] * alpha + data->r * inv) >> 8;
-      data->g = (rgba[1] * alpha + data->g * inv) >> 8;
-      data->b = (rgba[2] * alpha + data->b * inv) >> 8;
-    }
-  }
-
-  static void png_draw_alpha_scale_callback(pngle_t *pngle, uint32_t x, uint32_t y, uint8_t rgba[4])
-  {
-    auto p = (png_file_decoder_t*)lgfx_pngle_get_user_data(pngle);
-    if (y != p->last_pos) {
-      png_post_line(p);
-      png_prepare_line(p, y);
-    }
-
-    int32_t b = p->scale_y1 - p->scale_y0;
-    if (b <= 0) return;
-
-    int32_t l = ceilf( x      * p->zoom_x) - p->offX;
-    if (l < 0) l = 0;
-    int32_t r = ceilf((x + 1) * p->zoom_x) - p->offX;
-    if (r > p->maxWidth) r = p->maxWidth;
-    if (l >= r) return;
-
-    if (rgba[3] == 255) {
-      int32_t i = l;
-      do {
-        for (int32_t j = 0; j < b; ++j) {
-          auto data = &p->lineBuffer[i + j * p->maxWidth];
-          memcpy(data, rgba, 3);
-        }
-      } while (++i < r);
-    } else {
-      uint_fast8_t inv = 256 - rgba[3];
-      uint_fast8_t alpha = rgba[3] + 1;
-      int32_t i = l;
-      do {
-        for (int32_t j = 0; j < b; ++j) {
-          auto data = &p->lineBuffer[i + j * p->maxWidth];
-          data->r = (rgba[0] * alpha + data->r * inv) >> 8;
-          data->g = (rgba[1] * alpha + data->g * inv) >> 8;
-          data->b = (rgba[2] * alpha + data->b * inv) >> 8;
-        }
-      } while (++i < r);
-    }
-  }
-
-  static void png_init_callback(pngle_t *pngle, uint32_t w, uint32_t h, uint_fast8_t hasTransparent)
-  {
-    auto p = (png_file_decoder_t*)lgfx_pngle_get_user_data(pngle);
-    auto me = p->gfx;
-
-    int32_t cw, ch, cl, ct;
-    me->getClipRect(&cl, &ct, &cw, &ch);
-
-    if (p->zoom_y <= 0.0f || p->zoom_x <= 0.0f)
+    while (argb[(len-1)*4] == 0)
     {
-      float fit_width  = (p->maxWidth  > 0) ? p->maxWidth  : cw;
-      float fit_height = (p->maxHeight > 0) ? p->maxHeight : ch;
+      if (0 == --len) { return; }
+    }
+/*
+    while ((argb[idx * 4 + 3] == 0) && ++idx != len);
+    if (idx == len) return;
+    while ((argb[len * 4 - 1] == 0) && idx != --len);
+    if (idx)
+    {
+      len -= idx;
+      argb += idx * 4;
+      x += idx * div_x;
+      idx = 0;
+    }
+///*/
 
-      if (p->zoom_x <= -1.0f) { p->zoom_x = fit_width  / w; }
-      if (p->zoom_y <= -1.0f) { p->zoom_y = fit_height / h; }
-      if (p->zoom_x <= 0.0f)
+    while ((int32_t)x < p->offX && --len)
+    {
+      x += div_x;
+      argb += 4;
+    }
+    x -= p->offX;
+
+    if (!len || (int32_t)x >= p->maxWidth) return;
+
+    size_t idx = 0;
+    while ((argb[idx * 4] == 255) && ++idx != len);
+    p->data->postRead();
+
+    bool hasAlpha = (idx != len);
+    if (hasAlpha)
+    {
+      if (p->gfx->isReadable())
       {
-        if (p->zoom_y <= 0.0f)
+        if (p->lineBuffer == nullptr)
         {
-          p->zoom_y = std::min<float>(fit_width / w, fit_height / h);
+          p->lineBuffer = (bgra8888_t*)heap_alloc_dma(sizeof(bgra8888_t) * p->maxWidth);
         }
-        p->zoom_x = p->zoom_y;
+        p->gfx->readRect(p->x, p->y + y0, p->maxWidth, 1, p->lineBuffer);
+        do
+        {
+          uint_fast8_t a = argb[0];
+          if (a) {
+            if (a == 255) {
+              p->lineBuffer[x].set(*(uint32_t*)argb);
+            } else {
+              auto data = &p->lineBuffer[x];
+              uint_fast8_t inv = 255 - a;
+              data->set( (argb[1] * a + data->r * inv + 255) >> 8
+                      , (argb[2] * a + data->g * inv + 255) >> 8
+                      , (argb[3] * a + data->b * inv + 255) >> 8
+                      );
+            }
+          }
+          x += div_x;
+          if ((int32_t)x >= p->maxWidth) break;
+          argb += 4;
+        } while (--len);
+        p->pc->src_data = p->lineBuffer;
+        p->pc->src_x32_add = 1 << FP_SCALE;
+        p->pc->src_y32_add = 0;
+        p->gfx->pushImage(p->x, p->y + y0, p->maxWidth, 1, p->pc, false);
       }
-      if (p->zoom_y <= 0.0f)
+      else
       {
-        p->zoom_y = p->zoom_x;
+        do
+        {
+          if (argb[0] > LGFX_ALPHABLEND_NONREADABLE_THRESH)
+          {
+            p->gfx->setColor(color888(argb[1], argb[2], argb[3]));
+            p->gfx->writeFillRectPreclipped(p->x + x, p->y + y0, 1, 1);
+          }
+          x += div_x;
+          if ((int32_t)x >= p->maxWidth) break;
+          argb += 4;
+        } while (--len);
       }
     }
-    if (p->maxWidth  <= 0) p->maxWidth  = cw - (p->x);
-    if (p->maxHeight <= 0) p->maxHeight = ch - (p->y);
-
-    w = ceilf(w * p->zoom_x);
-    h = ceilf(h * p->zoom_y);
-
-    if (p->datum)
+    else
+    if (div_x == 1)
     {
-      if (p->datum & (datum_t::top_center | datum_t::top_right))
-      {
-        float fw = p->maxWidth - (int32_t)w;
-        if (p->datum & datum_t::top_center) { fw /= 2; }
-        p->offX -= fw;
-      }
-      if (p->datum & (datum_t::middle_left | datum_t::bottom_left | datum_t::baseline_left))
-      {
-        float fh = p->maxHeight - (int32_t)h;
-        if (p->datum & datum_t::middle_left) { fh /= 2; }
-        p->offY -= fh;
-      }
+      p->pc->src_data = argb;
+      p->pc->src_x32_add = 1 << FP_SCALE;
+      p->pc->src_y32_add = 0;
+      p->gfx->pushImage(p->x + x, p->y + y0, len, 1, p->pc, false);
     }
-
-    const int32_t cr = cw + cl;
-    const int32_t cb = ch + ct;
-
-    if (0 > p->x - cl) { p->maxWidth += p->x - cl; p->offX -= p->x - cl; p->x = cl; }
-    if (0 > p->offX) { p->x -= p->offX; p->maxWidth  += p->offX; p->offX = 0; }
-    if (p->maxWidth > (cr - p->x)) p->maxWidth = (cr - p->x);
-
-    int32_t ww = w - abs(p->offX);
-    if (p->maxWidth > ww) p->maxWidth = ww;
-    if (p->maxWidth < 0) return;
-
-    if (0 > p->y - ct) { p->maxHeight += p->y - ct; p->offY -= p->y - ct; p->y = ct; }
-    if (0 > p->offY) { p->y -= p->offY; p->maxHeight += p->offY; p->offY = 0; }
-    if (p->maxHeight > (cb - p->y)) p->maxHeight = (cb - p->y);
-
-    int32_t hh = h - abs(p->offY);
-    if (p->maxHeight > hh) p->maxHeight = hh;
-    if (p->maxHeight < 0) return;
-
-    lgfx_pngle_set_done_callback(pngle, png_done_callback);
-    if (hasTransparent)
-    { // need pixel read ?
-      p->lineBuffer = (bgr888_t*)heap_alloc_dma(sizeof(bgr888_t) * p->maxWidth * ceilf(p->zoom_x));
-      p->pc->src_data = p->lineBuffer;
-      png_prepare_line(p, 0);
-
-      if (p->zoom_x == 1.0f && p->zoom_y == 1.0f)
+    else
+    {
+      do
       {
-        lgfx_pngle_set_draw_callback(pngle, png_draw_alpha_callback);
-      }
-      else
-      {
-        lgfx_pngle_set_draw_callback(pngle, png_draw_alpha_scale_callback);
-      }
-    } else {
-      p->lineBuffer = nullptr;
-      if (p->zoom_x == 1.0f && p->zoom_y == 1.0f)
-      {
-        p->last_pos = ~0;
-        lgfx_pngle_set_draw_callback(pngle, png_draw_normal_callback);
-      }
-      else
-      {
-        png_ypos_update(p, 0);
-        lgfx_pngle_set_draw_callback(pngle, png_draw_normal_scale_callback);
-      }
+        p->gfx->setColor(color888(argb[1], argb[2], argb[3]));
+        p->gfx->writeFillRectPreclipped(p->x + x, p->y + y0, 1, 1);
+        x += div_x;
+        if ((int32_t)x >= p->maxWidth) break;
+        argb += 4;
+      } while (--len);
     }
   }
 
-  bool LGFXBase::draw_png(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float scale_x, float scale_y, datum_t datum)
+  static void png_draw_alpha_scale_callback(void *user_data, uint32_t x, uint32_t y, uint_fast8_t div_x, size_t len, const uint8_t* argb)
   {
+    auto p = (png_file_decoder_t*)user_data;
+
+    int32_t y0 = ceilf( y      * p->zoom_y) - p->offY;
+    if (y0 < 0) y0 = 0;
+    int32_t y1 = ceilf((y + 1) * p->zoom_y) - p->offY;
+    if (y1 > p->maxHeight) y1 = p->maxHeight;
+    if (y0 >= y1) return;
+
+    size_t idx = 0;
+/*
+    while ((argb[idx * 4 + 3] == 0) && ++idx != len);
+    if (idx == len) return;
+    while ((argb[len * 4 - 1] == 0) && idx != --len);
+    if (idx)
+    {
+      len -= idx;
+      argb += idx * 4;
+      x += idx * div_x;
+      idx = 0;
+    }
+//*/
+
+/*
+    int32_t left = ceilf( x      * p->zoom_x) - p->offX;
+    if (left < 0) left = 0;
+    int32_t right = ceilf((x + (len-1) * div_x + 1) * p->zoom_x) - p->offX;
+    if (right > p->maxWidth) right = p->maxWidth;
+//*/
+    p->data->postRead();
+
+    if (p->lineBuffer == nullptr)
+    {
+      p->lineBuffer = (bgra8888_t*)heap_alloc_dma(sizeof(bgra8888_t) * p->maxWidth);
+      p->pc->src_data = p->lineBuffer;
+    }
+
+    while ((argb[idx * 4] == 255) && ++idx != len);
+    bool hasAlpha = (idx != len);
+    if (hasAlpha)
+    {
+      if (p->gfx->isReadable())
+      {
+        do
+        {
+          p->gfx->readRect(p->x, p->y + y0, p->maxWidth, 1, p->lineBuffer);
+          const uint8_t* argbbuf = argb;
+          size_t loop = len;
+          size_t xtmp = x;
+          do
+          {
+            int32_t l = ceilf( xtmp      * p->zoom_x) - p->offX;
+            if (l < 0) l = 0;
+            int32_t r = ceilf((xtmp + 1) * p->zoom_x) - p->offX;
+            if (r > p->maxWidth) r = p->maxWidth;
+            if (l < r)
+            {
+              uint_fast8_t a = argbbuf[0];
+              if (a) {
+                if (a == 255)
+                {
+                  do
+                  {
+                    p->lineBuffer[l].set(*(uint32_t*)argbbuf);
+                  } while (++l < r);
+                }
+                else
+                {
+                  uint_fast8_t inv = 255 - a;
+                  size_t ar = argbbuf[1] * a + 255;
+                  size_t ag = argbbuf[2] * a + 255;
+                  size_t ab = argbbuf[3] * a + 255;
+                  do
+                  {
+                    auto data = &p->lineBuffer[l];
+                    data->set( (ar + data->r * inv) >> 8
+                            , (ag + data->g * inv) >> 8
+                            , (ab + data->b * inv) >> 8);
+                  } while (++l < r);
+                }
+              }
+            }
+            argbbuf += 4;
+            xtmp += div_x;
+          } while (--loop);
+          p->pc->src_x32_add = 1 << FP_SCALE;
+          p->pc->src_y32_add = 0;
+          p->gfx->pushImage(p->x, p->y + y0, p->maxWidth, 1, p->pc, true);
+        } while (++y0 != y1);
+      }
+      else
+      {
+        size_t h = y1 - y0;
+        do
+        {
+          int32_t l = ceilf( x      * p->zoom_x) - p->offX;
+          if (l < 0) l = 0;
+          int32_t r = ceilf((x + 1) * p->zoom_x) - p->offX;
+          if (r > p->maxWidth) r = p->maxWidth;
+          if (l < r)
+          {
+            if (argb[0] > LGFX_ALPHABLEND_NONREADABLE_THRESH)
+            {
+              p->gfx->setColor(color888(argb[1], argb[2], argb[3]));
+              p->gfx->writeFillRectPreclipped(p->x + l, p->y + y0, r - l, h);
+            }
+          }
+          argb += 4;
+          x += div_x;
+        } while (--len);
+      }
+    }
+    else
+    if (div_x == 1)
+    {
+//*
+      p->gfx->waitDMA();
+      do
+      {
+        int32_t l = ceilf( x      * p->zoom_x) - p->offX;
+        if (l < 0) l = 0;
+        int32_t r = ceilf((x + 1) * p->zoom_x) - p->offX;
+        if (r > p->maxWidth) r = p->maxWidth;
+        if (l < r)
+        {
+          do {
+            p->lineBuffer[l].set(*(uint32_t*)argb);
+          } while (++l < r);
+        }
+        argb += 4;
+        ++x;
+      } while (--len);
+      do {
+        p->pc->src_x32_add = 1 << FP_SCALE;
+        p->pc->src_y32_add = 0;
+        p->gfx->pushImage(p->x, p->y + y0, p->maxWidth, 1, p->pc, true);
+      } while (++y0 != y1);
+/*/
+      p->pc->src_x32_add = (1 << FP_SCALE) / p->zoom_x;
+      p->pc->src_data = argb;
+      int32_t l = - p->offX;
+      do {
+        p->pc->src_x32 = 0;
+        p->gfx->pushImage(p->x + l, p->y + y0, p->maxWidth - l, 1, p->pc, true);
+      } while (++y0 != y1);
+      p->pc->src_x32_add = (1 << FP_SCALE);
+      p->pc->src_data = p->lineBuffer;
+//*/
+    }
+    else
+    {
+      size_t h = y1 - y0;
+      do
+      {
+        int32_t l = ceilf( x      * p->zoom_x) - p->offX;
+        if (l < 0) l = 0;
+        int32_t r = ceilf((x + 1) * p->zoom_x) - p->offX;
+        if (r > p->maxWidth) r = p->maxWidth;
+        if (l < r)
+        {
+          p->gfx->setColor(color888(argb[1], argb[2], argb[3]));
+          p->gfx->writeFillRectPreclipped(p->x + l, p->y + y0, r - l, h);
+        }
+        argb += 4;
+        x += div_x;
+      } while (--len);
+    }
+  }
+
+  bool LGFXBase::draw_png(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float zoom_x, float zoom_y, datum_t datum)
+  {
+    pngle_t *pngle = lgfx_pngle_new();
+    if (pngle == nullptr) { return false; }
+
     prepareTmpTransaction(data);
     png_file_decoder_t png;
-    png.x = x;
-    png.y = y;
-    png.offX = offX;
-    png.offY = offY;
-    png.maxWidth  = maxWidth ;
-    png.maxHeight = maxHeight;
-    png.zoom_x = scale_x;
-    png.zoom_y = scale_y;
-    png.datum = datum;
-    png.gfx = this;
     png.lineBuffer = nullptr;
-    png.done = false;
+    png.data = data;
 
-    pixelcopy_t pc(nullptr, this->getColorDepth(), bgr888_t::depth, this->_palette_count);
+    if (lgfx_pngle_prepare(pngle, image_decoder_t::read_data, &png) < 0)
+    {
+      lgfx_pngle_destroy(pngle);
+      return false;
+    }
+
+    if (!png.begin( this
+                  , x
+                  , y
+                  , maxWidth
+                  , maxHeight
+                  , offX
+                  , offY
+                  , zoom_x
+                  , zoom_y
+                  , datum
+                  , lgfx_pngle_get_width(pngle), lgfx_pngle_get_height(pngle)))
+    {
+      lgfx_pngle_destroy(pngle);
+      return true;
+    }
+
+    pixelcopy_t pc(nullptr, this->getColorDepth(), bgra8888_t::depth, this->_palette_count);
+    if (this->hasPalette() || pc.dst_bits < 8) {
+      pc.fp_copy = pixelcopy_t::copy_bit_affine;
+      pc.fp_skip = pixelcopy_t::skip_bit_affine;
+    }
+    else
+    {
+      pc.fp_skip = pixelcopy_t::skip_rgb_affine<bgra8888_t>;
+      pc.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<bgra8888_t>(pc.dst_depth);
+    }
+    // png.lineBuffer = (bgra8888_t*)heap_alloc_dma(sizeof(bgra8888_t) * png.maxWidth);
+    // pc.src_data = png.lineBuffer;
+
     png.pc = &pc;
 
-    pngle_t *pngle = lgfx_pngle_new();
-
-    lgfx_pngle_set_user_data(pngle, &png);
-
-    lgfx_pngle_set_init_callback(pngle, png_init_callback);
-
-    // Feed data to pngle
-    uint8_t buf[512];
-    int remain = 0;
-    int len;
-    bool res = true;
-
     this->startWrite(!data->hasParent());
-    while (0 < (len = data->read(buf + remain, sizeof(buf) - remain))) {
-      data->postRead();
 
-      int fed = lgfx_pngle_feed(pngle, buf, remain + len);
+    auto res = lgfx_pngle_decomp(pngle, png.zoom_x == 1.0f && png.zoom_y == 1.0f ? png_draw_alpha_callback : png_draw_alpha_scale_callback);
 
-      if (png.done)
-      {
-        break;
-      }
-
-      if (fed < 0)
-      {
-//ESP_LOGE("LGFX", "[pngle error] %s", lgfx_pngle_error(pngle));
-        res = false;
-        break;
-      }
-
-      remain = remain + len - fed;
-      if (remain > 0) memmove(buf, buf + fed, remain);
-      data->preRead();
-    }
     this->endWrite();
     if (png.lineBuffer) {
       this->waitDMA();
       heap_free(png.lineBuffer);
     }
+    png.end();
     lgfx_pngle_destroy(pngle);
-    return res;
+
+    return res < 0 ? false : true;
   }
+
+
+  bool LGFXBase::draw_qoi(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float zoom_x, float zoom_y, datum_t datum)
+  {
+    qoi_t *qoi = lgfx_qoi_new();
+    if (qoi == nullptr) { return false; }
+
+    prepareTmpTransaction(data);
+    png_file_decoder_t png;
+    png.lineBuffer = nullptr;
+    png.data = data;
+
+    if (lgfx_qoi_prepare(qoi, image_decoder_t::read_data, &png) < 0)
+    {
+      lgfx_qoi_destroy(qoi);
+      return false;
+    }
+
+    if (!png.begin( this
+                  , x
+                  , y
+                  , maxWidth
+                  , maxHeight
+                  , offX
+                  , offY
+                  , zoom_x
+                  , zoom_y
+                  , datum
+                  , lgfx_qoi_get_width(qoi), lgfx_qoi_get_height(qoi)))
+    {
+      lgfx_qoi_destroy(qoi);
+      return true;
+    }
+
+    pixelcopy_t pc(nullptr, this->getColorDepth(), bgra8888_t::depth, this->_palette_count);
+    if (this->hasPalette() || pc.dst_bits < 8) {
+      pc.fp_copy = pixelcopy_t::copy_bit_affine;
+      pc.fp_skip = pixelcopy_t::skip_bit_affine;
+    }
+    else
+    {
+      pc.fp_skip = pixelcopy_t::skip_rgb_affine<bgra8888_t>;
+      pc.fp_copy = pixelcopy_t::get_fp_copy_rgb_affine<bgra8888_t>(pc.dst_depth);
+    }
+    png.lineBuffer = (bgra8888_t*)heap_alloc_dma(sizeof(bgra8888_t) * png.maxWidth);
+    pc.src_data = png.lineBuffer;
+
+    png.pc = &pc;
+
+    this->startWrite(!data->hasParent());
+
+    auto res = lgfx_qoi_decomp(qoi, png.zoom_x == 1.0f && png.zoom_y == 1.0f ? png_draw_alpha_callback : png_draw_alpha_scale_callback);
+
+    this->endWrite();
+    if (png.lineBuffer) {
+      this->waitDMA();
+      heap_free(png.lineBuffer);
+    }
+    png.end();
+    lgfx_qoi_destroy(qoi);
+
+    return res < 0 ? false : true;
+  }
+
 
   struct png_encoder_t
   {

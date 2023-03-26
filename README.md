@@ -1,5 +1,14 @@
 # LovyanGFX
 
+[![arduino-library-badge](https://www.ardu-badge.com/badge/LovyanGFX.svg?)](https://www.ardu-badge.com/LovyanGFX)
+[![PlatformIO Registry](https://badges.registry.platformio.org/packages/lovyan03/library/LovyanGFX.svg)](https://registry.platformio.org/packages/libraries/lovyan03/LovyanGFX)
+
+[![Arduino](https://github.com/lovyan03/LovyanGFX/actions/workflows/ArduinoBuild.yml/badge.svg?branch=master)](https://github.com/lovyan03/LovyanGFX/actions/workflows/ArduinoBuild.yml)
+[![Platformio](https://github.com/lovyan03/LovyanGFX/actions/workflows/PlatformioBuild.yml/badge.svg?branch=master)](https://github.com/lovyan03/LovyanGFX/actions/workflows/PlatformioBuild.yml)
+[![esp-idf](https://github.com/lovyan03/LovyanGFX/actions/workflows/IDFBuild.yml/badge.svg?branch=master)](https://github.com/lovyan03/LovyanGFX/actions/workflows/IDFBuild.yml)
+
+
+
 Display (LCD / OLED / EPD) graphics library (for ESP32 SPI, I2C, 8bitParallel / ESP8266 SPI, I2C / ATSAMD51 SPI).  
 M5Stack / M5StickC / TTGO T-Watch / ODROID-GO / ESP-WROVER-KIT / WioTerminal / and more...  
 [![examples](http://img.youtube.com/vi/SMOHRPqUZcQ/0.jpg)](http://www.youtube.com/watch?v=SMOHRPqUZcQ "examples")
@@ -21,7 +30,8 @@ This library mimics [AdafruitGFX](https://github.com/adafruit/Adafruit-GFX-Libra
   - オフスクリーンバッファ（スプライト）の高速な回転/拡縮描画  
   - 複数ディスプレイの同時利用  
   - モノクロディスプレイに対する減色描画の自動処理  
-  - OpenCVを描画先として利用でき、PC上で動作可能  
+  - [OpenCV,SDL2を描画先として利用でき、PC上で動作可能](examples_for_PC/README.md)  
+  - [コンポジットビデオ信号(NTSC,PAL)を出力できます (ESP32のみ)](doc/Panel_CVBS.md)
 
 This library has the following advantages.
   - ArduinoESP32 and ESP-IDF are supported.
@@ -30,41 +40,61 @@ This library has the following advantages.
   - Fast rotation/expansion of the off-screen buffer (sprite).
   - Simultaneous use of multiple displays.
   - Automatic processing of color reduction drawing for monochrome displays.
-  - OpenCV can be used as a drawing destination and can run on a PC.  
+  - OpenCV,SDL2 can be used as a drawing destination and can run on a PC.  
+  - Composite video signal (NTSC, PAL) output (only ESP32)
 
 
-|        | SPI | I2C | 8bit Para|16bit Para|
-|:------:|:---:|:---:|:--------:|:--------:|
-|ESP32   | HW  | HW  | HW (I2S) |   ---    |
-|ESP32-S2| HW  | HW  | HW (I2S) | HW (I2S) |
-|ESP32-C3| HW  | HW  | SW       |   ---    |
-|ESP8266 | HW  | SW  |   ---    |   ---    |
-|SAMD51  | HW  | HW  |   ---    |   ---    |
-|SAMD21  | HW  | HW  |   ---    |   ---    |
+|        | SPI | I2C | 8bit Para |16bit Para | RGB       | CVBS     |
+|:------:|:---:|:---:|:---------:|:---------:|:---------:|:--------:|
+|ESP32   | HW  | HW  | HW (I2S)  | ---       | ---       |HW(I2SDAC)|
+|ESP32-S2| HW  | HW  | HW (I2S)  | HW (I2S)  | ---       | ---      |
+|ESP32-S3| HW  | HW  |HW(LCD/CAM)|HW(LCD/CAM)|HW(LCD/CAM)| ---      |
+|ESP32-C3| HW  | HW  | SW        | ---       | ---       | ---      |
+|ESP8266 | HW  | SW  | ---       | ---       | ---       | ---      |
+|SAMD51  | HW  | HW  | ---       | ---       | ---       | ---      |
+|SAMD21  | HW  | HW  | ---       | ---       | ---       | ---      |
+|RP2040  | HW  | --- | ---       | ---       | ---       | ---      |
 
 ※ HW = HardWare Peripheral / SW = SoftWare implementation
 
+|        |TouchScreens|
+|:------:|:----------:|
+|ESP32   | supported  |
+|ESP32-S2| supported  |
+|ESP32-S3| supported  |
+|ESP32-C3| supported  |
+|ESP8266 | supported  |
+|SAMD51  | supported  |
+|SAMD21  | supported  |
+|RP2040  | ---        |
 
-対応環境 support environments
+対応環境 Supported environments
 ---------------
   - プラットフォーム Platform
     - ESP-IDF
     - Arduino ESP32
     - Arduino ATSAMD51 (Seeed)
+    - Arduino RP2040
 
   - ディスプレイ Displays
+    - GC9107 (M5AtomS3)
     - GC9A01
     - GDEW0154M09 (M5Stack CoreInk)
     - HX8357
     - ILI9163
     - ILI9225
     - ILI9341 (WioTerminal, ESP-WROVER-KIT, ODROID-GO, LoLin D32 Pro, WiFiBoy Pro)
-    - ILI9342 (M5Stack, M5Stack Core2)
+    - ILI9342 (M5Stack, M5Stack Core2, ESP32-S3-BOX)
     - ILI9481
     - ILI9486
     - ILI9488 (Makerfabs Touch with Camera)
     - IT8951 (M5Paper)
-    - SH110x (SH1106, SH1107, M5UnitOLED)
+    - NT35510/OTM8009A
+    - R61529
+    - RA8875
+    - RM68120
+    - SH110x (SH1106, SH1107, M5Stack Unit OLED)
+    - S6D04K1
     - SSD1306 (SSD1309)
     - SSD1327
     - SSD1331
@@ -79,7 +109,10 @@ This library has the following advantages.
 
   - タッチスクリーン TouchScreens
     - I2C FT5x06 (FT5206, FT5306, FT5406, FT6206, FT6236, FT6336, FT6436)
+    - I2C GSLx680 (GSL1680)
     - I2C GT911
+    - I2C NS2009
+    - I2C TT21xxx (TT21100)
     - SPI XPT2046
     - SPI STMPE610
 
@@ -102,36 +135,43 @@ This library is also compatible with the above models and display panels with a 
 // 対応機種がボードマネージャに無い場合 ( TTGO T-Wristband や ESP-WROVER-KIT等 ) は、
 // LovyanGFX.hppのincludeより前に、define LGFX_～ の定義を記述してください。
 
-// #define LGFX_M5STACK               // M5Stack (Basic / Gray / Go / Fire)
-// #define LGFX_M5STACK_CORE2         // M5Stack Core2
-// #define LGFX_M5STACK_COREINK       // M5Stack CoreInk
-// #define LGFX_M5STICK_C             // M5Stick C / CPlus
-// #define LGFX_M5PAPER               // M5Paper
-// #define LGFX_M5TOUGH               // M5Tough
-// #define LGFX_ODROID_GO             // ODROID-GO
-// #define LGFX_TTGO_TS               // TTGO TS
-// #define LGFX_TTGO_TWATCH           // TTGO T-Watch
-// #define LGFX_TTGO_TWRISTBAND       // TTGO T-Wristband
-// #define LGFX_TTGO_TDISPLAY         // TTGO T-Display
-// #define LGFX_DDUINO32_XS           // DSTIKE D-duino-32 XS
-// #define LGFX_LOLIN_D32_PRO         // LoLin D32 Pro
-// #define LGFX_ESP_WROVER_KIT        // ESP-WROVER-KIT
-// #define LGFX_WIFIBOY_PRO           // WiFiBoy Pro
-// #define LGFX_WIFIBOY_MINI          // WiFiBoy mini
-// #define LGFX_MAKERFABS_TOUCHCAMERA // Makerfabs Touch with Camera
-// #define LGFX_MAKERFABS_MAKEPYTHON  // Makerfabs MakePython
-// #define LGFX_WT32_SC01             // Seeed WT32-SC01
-// #define LGFX_WIO_TERMINAL          // Seeed Wio Terminal
-// #define LGFX_PYBADGE               // Adafruit PyBadge
-// #define LGFX_ESPBOY                // ESPboy
+// #define LGFX_M5STACK                       // M5Stack M5Stack Basic / Gray / Go / Fire
+// #define LGFX_M5STACK_CORE2                 // M5Stack M5Stack Core2
+// #define LGFX_M5STACK_COREINK               // M5Stack M5Stack CoreInk
+// #define LGFX_M5STICK_C                     // M5Stack M5Stick C / CPlus
+// #define LGFX_M5PAPER                       // M5Stack M5Paper
+// #define LGFX_M5TOUGH                       // M5Stack M5Tough
+// #define LGFX_M5ATOMS3                      // M5Stack M5ATOMS3
+// #define LGFX_ODROID_GO                     // ODROID-GO
+// #define LGFX_TTGO_TS                       // TTGO TS
+// #define LGFX_TTGO_TWATCH                   // TTGO T-Watch
+// #define LGFX_TTGO_TWRISTBAND               // TTGO T-Wristband
+// #define LGFX_TTGO_TDISPLAY                 // TTGO T-Display
+// #define LGFX_DDUINO32_XS                   // DSTIKE D-duino-32 XS
+// #define LGFX_LOLIN_D32_PRO                 // LoLin D32 Pro
+// #define LGFX_LOLIN_S3_PRO                  // LoLin S3 Pro
+// #define LGFX_ESP_WROVER_KIT                // Espressif ESP-WROVER-KIT
+// #define LGFX_ESP32_S3_BOX                  // Espressif ESP32-S3-BOX
+// #define LGFX_ESP32_S3_BOX_LITE             // Espressif ESP32-S3-BOX Lite
+// #define LGFX_WIFIBOY_PRO                   // WiFiBoy Pro
+// #define LGFX_WIFIBOY_MINI                  // WiFiBoy mini
+// #define LGFX_MAKERFABS_TOUCHCAMERA         // Makerfabs Touch with Camera
+// #define LGFX_MAKERFABS_MAKEPYTHON          // Makerfabs MakePython
+// #define LGFX_MAKERFABS_TFT_TOUCH_SPI       // Makerfabs TFT Touch SPI
+// #define LGFX_MAKERFABS_TFT_TOUCH_PARALLEL16// Makerfabs TFT Touch Parallel 16
+// #define LGFX_WT32_SC01                     // Seeed WT32-SC01
+// #define LGFX_WIO_TERMINAL                  // Seeed Wio Terminal
+// #define LGFX_PYBADGE                       // Adafruit PyBadge
+// #define LGFX_FUNHOUSE                      // Adafruit FunHouse
+// #define LGFX_FEATHER_ESP32_S2_TFT          // Adafruit Feather ESP32 S2 TFT
+// #define LGFX_FEATHER_ESP32_S3_TFT          // Adafruit Feather ESP32 S3 TFT
+// #define LGFX_ESPBOY                        // ESPboy
+// #define LGFX_WYWY_ESP32S3_HMI_DEVKIT       // wywy ESP32S3 HMI DevKit
+// #define LGFX_ESP32_2432S028                // Sunton ESP32 2432S028
 
-  #define LGFX_AUTODETECT // 自動認識 (D-duino-32 XS, PyBadge はパネルID読取りが出来ないため自動認識の対象から外れています)
+  #define LGFX_AUTODETECT // 自動認識 (D-duino-32 XS, WT32-SC01, PyBadge はパネルID読取りが出来ないため自動認識の対象から外れています)
 
 // 複数機種の定義を行うか、LGFX_AUTODETECTを定義することで、実行時にボードを自動認識します。
-
-
-// v1.0.0 を有効にします(v0からの移行期間の特別措置です。これを書かない場合は旧v0系で動作します。)
-#define LGFX_USE_V1
 
 
 // ヘッダをincludeします。
@@ -459,15 +499,19 @@ LovyanGFX has been created to add these features and optimize performance.
 謝辞 Acknowledgements
 ----------------
 このライブラリを作成するにあたり、インスピレーションを頂いた[TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)ライブラリの作者[Bodmer](https://github.com/Bodmer/)氏へ感謝いたします。  
-TFT_eSPIのベースとなった、[AdafruitGFX](https://github.com/adafruit/Adafruit-GFX-Library)を公開している[Adafruit Industries](https://github.com/adafruit/)へ感謝いたします。  
+TFT_eSPIのベースとなった、[AdafruitGFX](https://github.com/adafruit/Adafruit-GFX-Library)を公開されている[Adafruit Industries](https://github.com/adafruit/)へ感謝いたします。  
 [TJpgDec](http://elm-chan.org/fsw/tjpgd/00index.html) (Tiny JPEG Decompressor) の作者 [ChaN](http://elm-chan.org/)氏へ感謝いたします。  
 [Pngle](https://github.com/kikuchan/pngle) (PNG Loader for Embedding) の作者 [kikuchan](https://github.com/kikuchan/)氏へ感謝いたします。  
 [QRCode](https://github.com/ricmoo/QRCode/) (QR code generation library) の作者 [Richard Moore](https://github.com/ricmoo/)氏へ感謝いたします。  
-多くの技術的なアドバイスやESP-IDF環境での検証に協力してくれた[ciniml](https://github.com/ciniml)氏へ感謝いたします。  
+多くの技術的なアドバイスやESP-IDF環境での検証に協力してくださった[ciniml](https://github.com/ciniml)氏へ感謝いたします。  
 不具合の多い開発初期からの動作検証および多数の助言をくださった[mongonta0716](https://github.com/mongonta0716)氏へ感謝いたします。  
 多数のボードでの動作検証や英語への翻訳および多数の助言をくださった[tobozo](https://github.com/tobozo)氏へ感謝いたします。  
 フォントデータの作成に協力してくださった[TANAKA Masayuki](https://github.com/tanakamasayuki)氏へ感謝いたします。  
 [日本語フォントサブセットジェネレーター](https://github.com/yamamaya/lgfxFontSubsetGenerator)を製作してくださった[YAMANEKO](https://github.com/yamamaya)氏へ感謝いたします。  
+Raspberry pi pico (RP2040)対応に協力してくださった[yasuhirok](https://github.com/yasuhirok-git)氏へ感謝いたします。  
+Linux FrameBuffer対応に協力してくださった[IAMLIUBO](https://github.com/imliubo)氏へ感謝いたします。  
+コンポジットビデオ信号をESP32で出力するプロジェクトを公開されている[rossum](https://github.com/rossumur)氏と[Roger Cheng](https://github.com/Roger-random)氏へ感謝いたします。  
+
 
 Thanks to [Bodmer](https://github.com/Bodmer/), author of the [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) library, for the inspiration to create this library.  
 Thanks to [Adafruit Industries](https://github.com/adafruit/) for publishing [AdafruitGFX](https://github.com/adafruit/Adafruit-GFX-Library), which is the basis for TFT_eSPI.  
@@ -479,6 +523,9 @@ Thanks to [mongonta0716](https://github.com/mongonta0716), for verifying the wor
 Thanks to [tobozo](https://github.com/tobozo), for testing it on various boards, translating it into English and giving me a lot of advice.  
 Thanks to [TANAKA Masayuki](https://github.com/tanakamasayuki), for creating the font data.  
 Thanks to [YAMANEKO](https://github.com/yamamaya), for creating the [lgfxFontSubsetGenerator](https://github.com/yamamaya/lgfxFontSubsetGenerator).  
+Thanks to [yasuhirok](https://github.com/yasuhirok-git), for add Raspberry pi pico (RP2040) support.  
+Thanks to [IAMLIUBO](https://github.com/imliubo), for add Linux FrameBuffer support.  
+Thanks to [rossum](https://github.com/rossumur) and [Roger Cheng](https://github.com/Roger-random), published the project to output a composite video signal from ESP32.
 
 
 使用ライブラリ included library  
@@ -510,4 +557,12 @@ Font 2,4,6,7,8 :  [FreeBSD](https://github.com/Bodmer/TFT_eSPI/blob/master/licen
 converted IPA font : [IPA Font License](src/lgfx/Fonts/IPA/IPA_Font_License_Agreement_v1.0.txt) IPA  
 efont : [3-clause BSD](src/lgfx/Fonts/efont/COPYRIGHT.txt) The Electronic Font Open Laboratory  
 TomThumb font : [3-clause BSD](src/lgfx/Fonts/GFXFF/TomThumb.h) Brian J. Swetland / Vassilii Khachaturov / Dan Marks  
+
+
+実装予定 Unimplemented request
+----------------
+  - ディスプレイ Displays
+    - SEPS525
+    - LT7680A / LT7685
+    - RA8873 / RA8876
 

@@ -17,20 +17,23 @@ Contributors:
 /----------------------------------------------------------------------------*/
 #pragma once
 
-#include <vector>
-#include <string.h>
-
-#if __has_include(<esp32/rom/lldesc.h>)
- #include <esp32/rom/lldesc.h>
-#else
+#if __has_include(<rom/lldesc.h>)
  #include <rom/lldesc.h>
+#else
+ #include <esp32/rom/lldesc.h>
 #endif
 
 #if __has_include(<freertos/FreeRTOS.h>)
  #include <freertos/FreeRTOS.h>
 #endif
 
-#include <driver/i2s.h>
+#if __has_include(<driver/i2s_std.h>)
+ #include <driver/i2s_std.h>
+#else
+ #include <driver/i2s.h>
+#endif
+
+#include <soc/i2s_struct.h>
 
 #include "../../Bus.hpp"
 #include "../common.hpp"
@@ -46,7 +49,10 @@ namespace lgfx
   public:
     struct config_t
     {
-      i2s_port_t i2s_port = I2S_NUM_0;
+      union {
+        i2s_port_t i2s_port = I2S_NUM_0;
+        int port;
+      };
 
       // max 40MHz , 27MHz , 20MHz , 16MHz , 13.3MHz , 11.43MHz , 10MHz , 8.9MHz  and more ...
       uint32_t freq_write = 16000000;
@@ -91,6 +97,8 @@ namespace lgfx
     void endTransaction(void) override;
     void wait(void) override;
     bool busy(void) const override;
+    uint32_t getClock(void) const override { return _cfg.freq_write; }
+    void setClock(uint32_t freq) override { if (_cfg.freq_write != freq) { _cfg.freq_write = freq; config(_cfg); } }
 
     void flush(void) override;
     bool writeCommand(uint32_t data, uint_fast8_t bit_length) override;
@@ -133,7 +141,7 @@ namespace lgfx
     static constexpr size_t CACHE_SIZE = 132;
 
     config_t _cfg;
-    SimpleBuffer _flip_buffer;
+    FlipBuffer _flip_buffer;
     size_t _div_num;
     size_t _cache_index;
     uint32_t _cache[2][CACHE_SIZE];
@@ -156,7 +164,6 @@ namespace lgfx
     uint32_t _mask_reg_dc = 0;
     bool _direct_dc;
 
-    uint32_t _last_freq_apb;
     uint32_t _clkdiv_write;
     volatile void *_dev;
 

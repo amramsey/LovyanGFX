@@ -509,7 +509,7 @@ auto mastermode = SERCOM_SPI_CTRLA_MODE_SPI_MASTER;
 
       //Extract data from clockMode
       sercom->SPI.CTRLA.bit.CPHA = spi_mode & 1;
-      sercom->SPI.CTRLA.bit.CPOL = spi_mode & 2;
+      sercom->SPI.CTRLA.bit.CPOL = (spi_mode >> 1) & 1;
       sercom->SPI.BAUD.reg = FreqToClockDiv(freq);
 
       sercom->SPI.CTRLA.bit.ENABLE = 1;
@@ -539,7 +539,7 @@ auto mastermode = SERCOM_SPI_CTRLA_MODE_SPI_MASTER;
       auto sercom = reinterpret_cast<Sercom*>(sercom_data->sercomPtr);
       auto *spi = &sercom->SPI;
       
-      while (spi->INTFLAG.bit.RXC) { uint32_t tmp = spi->DATA.reg; }
+      while (spi->INTFLAG.bit.RXC) { uint32_t tmp = spi->DATA.reg; (void)tmp; }
       do
       {
         spi->DATA.reg = *data;

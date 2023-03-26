@@ -32,15 +32,6 @@ namespace lgfx
     /// I2C接続のためGPIOによるRESET制御は不要なのでfalseで呼出す;
     if (!Panel_Device::init(false)) return false;
 
-    if (use_reset)
-    {
-      startWrite(true);
-      _bus->writeCommand(CMD_RESET | 0x77 << 8 | 0x89 << 16 | CMD_RESET << 24, 32);
-      endWrite();
-      // リセットコマンド後は200msec待つ;
-      lgfx::delay(200);
-    }
-
     startWrite(true);
 
     _bus->writeCommand(CMD_READ_ID, 8);
@@ -52,6 +43,21 @@ namespace lgfx
     if (res)
     {
       _check_repeat();
+      if (use_reset)
+      {
+        _bus->writeCommand(CMD_RESET | 0x77 << 8 | 0x89 << 16 | CMD_RESET << 24, 32);
+        // リセットコマンド後は300msec待つ;
+        lgfx::delay(300);
+        int retry = 8;
+        do
+        {
+          _bus->writeCommand(CMD_NOP, 16);
+          endWrite();
+          lgfx::delay(32);
+          startWrite(true);
+          _bus->writeCommand(CMD_READ_ID, 8);
+        } while (!(_bus->readBytes(buf, 4, true) && buf[0] == 0x77 && buf[1] == 0x89) && --retry);
+      }
     }
 
     endWrite();
@@ -61,6 +67,8 @@ namespace lgfx
 
   void Panel_M5UnitLCD::beginTransaction(void)
   {
+    if (_in_transaction) return;
+    _in_transaction = true;
     _bus->beginTransaction();
     cs_control(false);
     _last_cmd = 0;
@@ -68,6 +76,8 @@ namespace lgfx
 
   void Panel_M5UnitLCD::endTransaction(void)
   {
+    if (!_in_transaction) return;
+    _in_transaction = false;
     _bus->endTransaction();
     cs_control(true);
     _last_cmd = 0;
@@ -139,9 +149,9 @@ namespace lgfx
     else                { depth = color_depth_t::rgb565_2Byte; }
 
     _read_depth = _write_depth = depth;
-    _read_bits  = _write_bits  = depth & color_depth_t::bit_mask;
+
 //    _update_colmod();
-    return _write_depth;
+    return depth;
   }
 
   void Panel_M5UnitLCD::setRotation(uint_fast8_t r)
@@ -361,7 +371,7 @@ namespace lgfx
       memmove(dst, src, src_size * bytes);
       dst += src_size * bytes;
     }
-    else  // RLEモード
+    else  // RLEモード;
     {
       for (size_t i = 0; i < src_size; i++)
       {
