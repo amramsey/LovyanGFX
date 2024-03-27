@@ -25,6 +25,8 @@ Contributors:
 #include "../misc/pixelcopy.hpp"
 #include "../misc/colortype.hpp"
 
+#include <stdint.h>
+#include <stddef.h>
 #include <esp_log.h>
 #include <soc/gpio_periph.h>
 #include <soc/gpio_reg.h>
@@ -48,6 +50,7 @@ namespace lgfx
  {
 
 //----------------------------------------------------------------------------
+  static constexpr const uint32_t base_clock = 74250000;
 
   enum GWFPGA_Inst_Def
   {
@@ -108,6 +111,14 @@ namespace lgfx
     *_tms_reg[0] = TMS_MASK;
     *_tdi_reg[0] = TDI_MASK;
     *_tck_reg[0] = TCK_MASK;
+
+    int retry = 128;
+    do
+    { // FPGAのロットによって待ち時間に差がある。
+      // 先に進んで良いかステータスレジスタの状態をチェックする。
+      if ((JTAG_ReadStatus() & 0x200) == 0) { break; }
+      delay(1);
+    } while (--retry);
 
     JTAG_MoveTap(TAP_UNKNOWN, TAP_IDLE);
 
@@ -297,18 +308,18 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  std::uint8_t Panel_M5HDMI::HDMI_Trans::readRegister(std::uint8_t register_address)
+  uint8_t Panel_M5HDMI::HDMI_Trans::readRegister(uint8_t register_address)
   {
-    std::uint8_t buffer;
+    uint8_t buffer;
     lgfx::i2c::transactionWriteRead(this->HDMI_Trans_config.i2c_port, this->HDMI_Trans_config.i2c_addr, &register_address, 1, &buffer, 1, this->HDMI_Trans_config.freq_read);
     return buffer;
   }
 
-  std::uint16_t Panel_M5HDMI::HDMI_Trans::readRegister16(std::uint8_t register_address)
+  uint16_t Panel_M5HDMI::HDMI_Trans::readRegister16(uint8_t register_address)
   {
-    std::uint8_t buffer[2];
+    uint8_t buffer[2];
     lgfx::i2c::transactionWriteRead(this->HDMI_Trans_config.i2c_port, this->HDMI_Trans_config.i2c_addr, &register_address, 1, buffer, 2, this->HDMI_Trans_config.freq_read);
-    return (static_cast<std::uint16_t>(buffer[0]) << 8) | buffer[1];
+    return (static_cast<uint16_t>(buffer[0]) << 8) | buffer[1];
   }
 
   bool Panel_M5HDMI::HDMI_Trans::writeRegister(uint8_t register_address, uint8_t value)
@@ -440,28 +451,23 @@ namespace lgfx
 
 //----------------------------------------------------------------------------
 
-  class _pin_backup_t
+  uint32_t Panel_M5HDMI::_read_fpga_id(void)
   {
-  public:
-    _pin_backup_t(gpio_num_t pin_num)
-      : _io_mux_gpio_reg   { *reinterpret_cast<uint32_t*>(GPIO_PIN_MUX_REG[pin_num]) }
-      , _gpio_func_out_reg { *reinterpret_cast<uint32_t*>(GPIO_FUNC0_OUT_SEL_CFG_REG + (pin_num * 4)) }
-      , _pin_num           { pin_num }
-    {}
-
-    void restore(void) const
-    {
-      if ((uint32_t)_pin_num < GPIO_NUM_MAX) {
-        *reinterpret_cast<uint32_t*>(GPIO_PIN_MUX_REG[_pin_num]) = _io_mux_gpio_reg;
-        *reinterpret_cast<uint32_t*>(GPIO_FUNC0_OUT_SEL_CFG_REG + (_pin_num * 4)) = _gpio_func_out_reg;
-      }
-    }
-
-  private:
-    uint32_t _io_mux_gpio_reg;
-    uint32_t _gpio_func_out_reg;
-    gpio_num_t _pin_num;
-  };
+    startWrite();
+    _bus->writeData(CMD_NOP, 32);
+    endWrite();
+    _bus->writeData(CMD_NOP, 32);
+    startWrite();
+    _bus->writeData(CMD_READ_ID, 8); // READ_ID
+    _bus->beginRead();
+    uint32_t retry = 16;
+    while (_bus->readData(8) == 0xFF && --retry) {}
+    _bus->readData(8); // skip 0xFF
+    uint32_t fpga_id = _bus->readData(32);
+    endWrite();
+    ESP_LOGI(TAG, "FPGA ID:%08x", (int)__builtin_bswap32(fpga_id));
+    return fpga_id;
+  }
 
   bool Panel_M5HDMI::init(bool use_reset)
   {
@@ -481,50 +487,78 @@ namespace lgfx
     ESP_LOGI(TAG, "Resetting HDMI transmitter...");
     driver.reset();
 
-    {
-      auto bus_cfg = reinterpret_cast<lgfx::Bus_SPI*>(_bus)->config();
-      _pin_backup_t backup_pins[] = { (gpio_num_t)bus_cfg.pin_sclk, (gpio_num_t)bus_cfg.pin_mosi, (gpio_num_t)bus_cfg.pin_miso };
-      LOAD_FPGA fpga(bus_cfg.pin_sclk, bus_cfg.pin_mosi, bus_cfg.pin_miso, _cfg.pin_cs);
-      for (auto &bup : backup_pins) { bup.restore(); }
-    }
     if (!Panel_Device::init(false)) { return false; }
 
-    // Initialize and read ID
-    ESP_LOGI(TAG, "Waiting the FPGA gets idle...");
-    startWrite();
-    _bus->beginRead();
-    while (_bus->readData(8) != 0xFF) {}
-    cs_control(true);
-    _bus->endRead();
-    cs_control(false);
-    _bus->writeData(CMD_READ_ID, 8); // READ_ID
-    _bus->beginRead();
-    while (_bus->readData(8) == 0xFF) {}
-    _bus->readData(8); // skip 0xFF
-    uint32_t data = _bus->readData(32);
-    (void)data; // suppress compiler warning.
-    ESP_LOGI(TAG, "FPGA ID:%02x %02x %02x %02x", (uint8_t)data, (uint8_t)(data >> 8), (uint8_t)(data >> 16), (uint8_t)(data >> 24));
-    cs_control(true);
-    _bus->endRead();
-    cs_control(false);
+    if ((_read_fpga_id() & 0xFFFF) != ('H' | 'D' << 8))
+    {
+      auto bus_cfg = reinterpret_cast<lgfx::Bus_SPI*>(_bus)->config();
+      gpio::pin_backup_t backup_pins[] = { bus_cfg.pin_sclk, bus_cfg.pin_mosi, bus_cfg.pin_miso };
+      LOAD_FPGA fpga(bus_cfg.pin_sclk, bus_cfg.pin_mosi, bus_cfg.pin_miso, _cfg.pin_cs);
+      for (auto &bup : backup_pins) { bup.restore(); }
 
+      // Initialize and read ID
+      ESP_LOGI(TAG, "Waiting the FPGA gets idle...");
+      startWrite();
+      _bus->beginRead();
+      _bus->readData(32);
+      uint32_t retry = 1024;
+      do {
+        lgfx::delay(10);
+      } while ((0xFFFFFFFFu != _bus->readData(32)) && --retry);
+      endWrite();
+
+      if (retry == 0) {
+        ESP_LOGW(TAG, "Waiting for FPGA idle timed out.");
+        return false;
+      }
+    }
+
+    uint32_t apbfreq = lgfx::getApbFrequency();
+    uint_fast8_t div_write = apbfreq / (_bus->getClock() + 1) + 1;
+    uint_fast8_t div_read  = apbfreq / (_bus->getReadClock() + 1) + 1;
+
+    uint32_t retry = 8;
+    do
+    {
+   // ESP_LOGI(TAG, "FREQ:%lu , %lu  DIV_W:%lu , %lu", _bus->getClock(), _bus->getReadClock(), div_write, div_read);
+      uint32_t fpga_id = _read_fpga_id();
+      // 受信したIDの先頭が "HD" なら正常動作
+      if ((fpga_id & 0xFFFF) == ('H' | 'D' << 8))
+      {
+        break;
+      }
+
+      if (fpga_id == 0 || fpga_id == ~0u)
+      { // MISOが変化しない場合、コマンドが正しく受理されていないと仮定し送信速度を下げる。
+        _bus->setClock(apbfreq / ++div_write);
+      }
+      else
+      { // 受信データの先頭が HD でない場合は受信速度を下げる。
+        _bus->setReadClock(apbfreq / ++div_read);
+      }
+    } while (--retry);
+
+    if (retry == 0) {
+      ESP_LOGW(TAG, "read FPGA ID failed.");
+      return false;
+    }
+
+    startWrite();
     bool res = _init_resolution();
+    endWrite();
 
     ESP_LOGI(TAG, "Initialize HDMI transmitter...");
     if (!driver.init() )
     {
-      ESP_LOGI(TAG, "failed.");
+      ESP_LOGW(TAG, "HDMI transmitter Initialize failed.");
       return false;
     }
 
-    endWrite();
-
+    ESP_LOGI(TAG, "done.");
     return res;
   }
 
   uint32_t getPllParams(Panel_M5HDMI::video_clock_t* vc, uint32_t target_clock) {
-
-    static constexpr const uint32_t base_clock = 74250000;
 
     uint32_t fb_clock = base_clock;
     uint32_t save_diff = ~0u;
@@ -566,6 +600,8 @@ namespace lgfx
       save_diff = diff;
       vc->output_divider = odiv;
     }
+    // Use half of the pixel clock if the target clock is greater than the base clock.
+    vc->use_half_clock = target_clock > base_clock;
 
     return result;
   }
@@ -575,7 +611,8 @@ namespace lgfx
     video_clock_t vc;
     int32_t OUTPUT_CLOCK = getPllParams(&vc, _pixel_clock);
 
-    int32_t TOTAL_RESOLUTION = OUTPUT_CLOCK / _refresh_rate;
+    bool use_half_clock = vc.use_half_clock;
+    int32_t TOTAL_RESOLUTION = (OUTPUT_CLOCK >> use_half_clock) / _refresh_rate;
 
     int mem_width  = _cfg.memory_width ;
     int mem_height = _cfg.memory_height;
@@ -584,8 +621,8 @@ namespace lgfx
     int vert_total = mem_height + 9;
     int hori_total = TOTAL_RESOLUTION / vert_total;
     int hori_tmp = hori_total, vert_tmp = vert_total;
-    int hori_min = mem_width +  32 + (mem_width >> (1+_scale_w));
-    int hori_max = mem_width + 768 + (mem_width >> 3);
+    int hori_min = mem_width + (( 32 + (mem_width >> (1+_scale_w))) >> use_half_clock);
+    int hori_max = mem_width + ((768 + (mem_width >> 3)) >> use_half_clock);
     if (hori_tmp > hori_max) { hori_tmp = hori_max; }
     for (;;)
     {
@@ -630,19 +667,26 @@ namespace lgfx
     vt.h.front_porch = porch;
     vt.h.sync = sync;
     vt.h.back_porch = remain;
-
+/*
+    // Force to 960x540
+    vt.v.front_porch = 4; //porch;
+    vt.v.sync = 5; //sync;
+    vt.v.back_porch = 36; //remain;
+    vt.h.front_porch = 88/2; //porch;
+    vt.h.sync = 44/2; //sync;
+    vt.h.back_porch = 148/2; //remain;
+//*/
     setVideoTiming(&vt);
     setScaling(_scale_w, _scale_h);
     _set_video_clock(&vc);
 
-    if (!res)
     {
-      // ESP_LOGI(TAG, "PLL feedback_div:%d  input_div:%d  output_div:%d  OUTPUT_CLOCK:%ld", vc.feedback_divider, vc.input_divider, vc.output_divider, OUTPUT_CLOCK);
-      ESP_LOGI(TAG, "logical resolution: w:%d h:%d", _cfg.panel_width, _cfg.panel_height);
-      ESP_LOGI(TAG, "scaling resolution: w:%d h:%d", _cfg.panel_width * _scale_w, _cfg.panel_height * _scale_h);
-      ESP_LOGI(TAG, " output resolution: w:%d h:%d", _cfg.memory_width, _cfg.memory_height);
-      ESP_LOGI(TAG, "video timing(Hori) total:%d active:%d frontporch:%d sync:%d backporch:%d", vt.h.active + vt.h.front_porch + vt.h.sync + vt.h.back_porch, vt.h.active, vt.h.front_porch, vt.h.sync, vt.h.back_porch);
-      ESP_LOGI(TAG, "video timing(Vert) total:%d active:%d frontporch:%d sync:%d backporch:%d", vt.v.active + vt.v.front_porch + vt.v.sync + vt.v.back_porch, vt.v.active, vt.v.front_porch, vt.v.sync, vt.v.back_porch);
+      ESP_LOGD(TAG, "PLL feedback_div:%d  input_div:%d  output_div:%d  OUTPUT_CLOCK:%d", vc.feedback_divider, vc.input_divider, vc.output_divider, (int)OUTPUT_CLOCK);
+      ESP_LOGD(TAG, "logical resolution: w:%d h:%d", _cfg.panel_width, _cfg.panel_height);
+      ESP_LOGD(TAG, "scaling resolution: w:%d h:%d", _cfg.panel_width * _scale_w, _cfg.panel_height * _scale_h);
+      ESP_LOGD(TAG, " output resolution: w:%d h:%d", _cfg.memory_width, _cfg.memory_height);
+      ESP_LOGD(TAG, "video timing(Hori) total:%d active:%d frontporch:%d sync:%d backporch:%d", vt.h.active + vt.h.front_porch + vt.h.sync + vt.h.back_porch, vt.h.active, vt.h.front_porch, vt.h.sync, vt.h.back_porch);
+      ESP_LOGD(TAG, "video timing(Vert) total:%d active:%d frontporch:%d sync:%d backporch:%d", vt.v.active + vt.v.front_porch + vt.v.sync + vt.v.back_porch, vt.v.active, vt.v.front_porch, vt.v.sync, vt.v.back_porch);
     }
 
     return res;
@@ -694,7 +738,7 @@ namespace lgfx
 
   void Panel_M5HDMI::config_resolution( const config_resolution_t& cfg_reso )
   {
-    static constexpr int SCALE_MAX = 16;
+    static constexpr int SCALE_MAX = 8;
     static constexpr int RANGE_MAX = 2048;
 
     uint_fast16_t logical_width  = cfg_reso.logical_width;
@@ -762,8 +806,8 @@ namespace lgfx
     {
       scale_w = 1280 / logical_width;
       scale_h = 720 / logical_height;
-      if ((scale_w > 16)
-      || (scale_h > 16)
+      if ((scale_w > SCALE_MAX)
+      || (scale_h > SCALE_MAX)
       || (limit != 1280 * 720)
       || (scale_w * logical_width != 1280)
       || (scale_h * logical_height != 720))
@@ -804,7 +848,10 @@ namespace lgfx
         w = output_width / --scale_w;
       }
     }
-
+    if (_pixel_clock > base_clock && scale_w >= 2) { // use_half_clock
+      scale_w >>= 1;
+      output_width >>= 1;
+    }
     _scale_w = scale_w;
     _scale_h = scale_h;
     _cfg.memory_width  = output_width  ;
@@ -844,6 +891,7 @@ namespace lgfx
   {
     if ((_last_cmd & ~7) == CMD_WRITE_RAW)
     {
+      _bus->wait();
       cs_control(true);
       _total_send = 0;
       _last_cmd = 0;
@@ -869,7 +917,6 @@ namespace lgfx
   {
     if ((_last_cmd & ~7) == CMD_WRITE_RAW)
     {
-      _last_cmd = 0;
       _total_send = 0;
 
       _bus->beginRead();
@@ -995,10 +1042,7 @@ namespace lgfx
       buf[3] = _raw_color;
       bytes += 4;
     }
-    if (rect || _total_send || _last_cmd)
-    {
-      _check_busy(bytes);
-    }
+    _check_busy(bytes);
     _bus->writeBytes(((uint8_t*)buf)+3, bytes, false, false);
   }
 
@@ -1289,6 +1333,38 @@ namespace lgfx
 
   void Panel_M5HDMI::copyRect(uint_fast16_t dst_x, uint_fast16_t dst_y, uint_fast16_t w, uint_fast16_t h, uint_fast16_t src_x, uint_fast16_t src_y)
   {
+    return;
+/*
+2023/12/27 : copyRect機能を一時的に使用不能にする。 ( scroll 機能も使用不能となります )
+
+経緯：
+ModuleDisplay / AtomDisplayに搭載している GOWIN の FPGA のロットが新しくなったことに伴って、性能上の問題が生じた。
+
+現在こちらで把握しできているFPGAロットナンバーは以下の通り。
+    2103C 問題なく動作する最初期のロット。
+    2305C 性能問題が生じるロット。
+    2313C 性能問題が生じるロット。
+
+従来のFPGAデザインをそのまま使用すると正常に動作しないため、FPGAのデザイン改修作業を @ciniml 氏が進めていた。
+新しいロットのFPGAでは動作クロックやリソース使用率を下げることで安定動作する傾向にあることが判明しているが、
+正確な仕様の変化が不明なことや、タイミング制約を満たしていても動作しないケースがあり、対応作業が困難な状況にある。
+現時点では、copyRect機能が省かれているが、基本機能は動作する状態のFPGAデザインが出来ている。
+
+なお、当該問題が生じる新しいロットを搭載した製品は市場に流通していないという認識であったが、
+2023/12/25 ユーザーからの報告により、問題が生じるロットの製品が市場に流通していることが判明した。
+このため、暫定的に現時点のもので更新を行うこととした。
+
+まことに遺憾ながら、この更新により、ModuleDisplay / AtomDisplay は従来のロットであっても性能が低下する。
+ ・ FPGA内部動作クロックを下げたことにより全体的に描画性能が低下する。
+ ・ copyRect機能が使用できなくなる。
+
+
+今後の対応方針としては、FPGAリソース使用率を根本的に下げる必要があるため、
+ 1ピクセル 3Byte RGB888 のフルカラー表現を諦め、
+ 1ピクセル 2Byte RGB565 の65536色に限定したデザインに刷新することを検討している。
+*/
+
+#if 0
     uint_fast8_t r = _internal_rotation;
     if (r)
     {
@@ -1325,6 +1401,7 @@ namespace lgfx
       } while (h--);
     }
     endWrite();
+#endif
   }
 
   void Panel_M5HDMI::setVideoTiming(const video_timing_t* param)
@@ -1371,13 +1448,14 @@ namespace lgfx
   {
     union cmd_t
     {
-      uint8_t raw[8];
+      uint8_t raw[9];
       struct __attribute__((packed))
       {
         uint8_t cmd;
         uint16_t input_divider;
         uint16_t feedback_divider;
         uint16_t output_divider;
+        uint8_t flags;
         uint8_t chksum;
       };
     };
@@ -1386,6 +1464,7 @@ namespace lgfx
     cmd.input_divider = param->input_divider << 8;
     cmd.feedback_divider = param->feedback_divider << 8;
     cmd.output_divider = param->output_divider << 8;
+    cmd.flags = param->use_half_clock ? 1 : 0;
     uint_fast8_t sum = 0;
     for (size_t i = 0; i < sizeof(cmd_t)-1; ++i)
     {

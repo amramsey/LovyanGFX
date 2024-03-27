@@ -29,10 +29,15 @@ Inspiration Sources:
 #include <esp_types.h>
 #include <esp_log.h>
 #include <driver/dac.h>
-#include <rom/lldesc.h>
 #include <soc/rtc.h>
 #include <soc/periph_defs.h>
 #include <soc/i2s_struct.h>
+
+#if __has_include(<esp32/rom/lldesc.h>)
+ #include <esp32/rom/lldesc.h>
+#else
+ #include <rom/lldesc.h>
+#endif
 
 #if __has_include(<esp_chip_info.h>)
  #include <esp_chip_info.h>
@@ -88,7 +93,7 @@ namespace lgfx
       _push_idx = 0;
       _using_idx = cache_num - 1;
       prev_index = 0;
-      if ((uint32_t)task_pinned_core >= portNUM_PROCESSORS)
+      if (task_pinned_core >= portNUM_PROCESSORS)
       {
         task_pinned_core = (xPortGetCoreID() + 1) % portNUM_PROCESSORS;
       }
@@ -406,7 +411,7 @@ namespace lgfx
     static constexpr const size_t sync_proc_count = 12;
     uint16_t total_scanlines;     // 走査線数(２フィールド、１フレーム);
     uint16_t scanline_width;      // 走査線内のサンプル数 (カラークロック数 x4);
-    uint8_t hsync_serration;      // 切り込みパルス幅;
+    uint8_t hsync_equalizing;     // 等化パルス幅;
     uint8_t hsync_short;          // 水平同期期間のSYNC幅;
     uint16_t hsync_long;          // 垂直同期期間のSYNC幅;
     uint8_t burst_start;
@@ -425,7 +430,7 @@ namespace lgfx
   { // NTSC
     { 525         // 走査線525本;
     , 910         // 1走査線あたり 227.5 x4 sample
-    , 32          // serration = 32 sample (2.3us)
+    , 32          // equalizing = 32 sample (2.3us)
     , 66          // hsync_short = 66 sample (4.7us)
     , 380         // hsync_long = 380 sample
     , 76          // burst start = 76 sample
@@ -442,7 +447,7 @@ namespace lgfx
   , // NTSC_J
     { 525         // 走査線525本;
     , 910         // 1走査線あたり 227.5 x4 sample
-    , 32          // serration = 32 sample (2.3us)
+    , 32          // equalizing = 32 sample (2.3us)
     , 66          // hsync_short = 66 sample (4.7us)
     , 380         // hsync_long = 380 sample
     , 76          // burst start = 76 sample
@@ -460,7 +465,7 @@ namespace lgfx
   , // PAL
     { 625         // 走査線625本;
     , 1136        // 1走査線あたり 284 x4 sample (正確には283.75x4 = 1135だが、2の倍数でないとI2S出力できないため1136とする)
-    , 40          // serration = 40 sample (2.3us)
+    , 40          // equalizing = 40 sample (2.3us)
     , 84          // hsync_shor = 84 sample (4.7us)
     , 484         // hsync_long 484 sample
     , 98          // burst start = 98 sample (5.6us)
@@ -477,7 +482,7 @@ namespace lgfx
   , // PAL_M  (PAL_M方式は周波数等がNTSCと共通、カラー情報の仕様がPALと共通)
     { 525         // 走査線525本;
     , 908         // 1走査線あたり 227.5 x4 sample
-    , 32          // serration = 32 sample (2.3us)
+    , 32          // equalizing = 32 sample (2.3us)
     , 66          // hsync_short = 66 sample (4.7us)
     , 380         // hsync_long = 380 sample
     , 80          // burst start = 84 sample
@@ -1798,13 +1803,13 @@ namespace lgfx
         if (sync_proc & 0x03) // 水平期間後半のパルス付与;
         {
           // 0x01=等化パルス幅  /  0x02=垂直同期パルス幅
-          int syncwidth = ((sync_proc & 0x01) ? _signal_spec_info.hsync_serration : _signal_spec_info.hsync_long);
+          int syncwidth = ((sync_proc & 0x01) ? _signal_spec_info.hsync_equalizing : _signal_spec_info.hsync_long);
           memset(&buf[((_signal_spec_info.scanline_width >> 1) + 1) & ~1u], internal.SYNC_LEVEL >> 8, syncwidth << 1);
           buf[(_signal_spec_info.scanline_width >> 1) ^ 1] = internal.SYNC_LEVEL;
         }
         if (sync_proc & 0x30) // 水平期間前半のパルス付与;
         {
-          int syncwidth = _signal_spec_info.hsync_serration;  // 等化パルス幅;
+          int syncwidth = _signal_spec_info.hsync_equalizing;  // 等化パルス幅;
           switch ((sync_proc >> 4) & 3)
           {
           case 2: syncwidth = _signal_spec_info.hsync_long;  break;   // 垂直同期パルス幅;
@@ -2118,12 +2123,13 @@ namespace lgfx
     I2S0.clkm_conf.clkm_div_a = 1;
     if (use_apll) {
 #if defined ( LGFX_I2S_STD_ENABLED )
+      rtc_clk_apll_enable( true );
+      // 設定する前にapllをenableにしておく必要がある
       rtc_clk_apll_coeff_set( 1
                             , setup_info.sdm0
                             , setup_info.sdm1
                             , setup_info.sdm2
                             );
-      rtc_clk_apll_enable( true );
 #else
       rtc_clk_apll_enable( true
                           , setup_info.sdm0

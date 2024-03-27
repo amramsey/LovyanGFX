@@ -927,16 +927,15 @@ namespace lgfx
     if (r1x < 0) return;
     if (r1y < 0) return;
 
-    bool equal = fabsf(start - end) < std::numeric_limits<float>::epsilon();
+    bool ring = fabsf(start - end) >= 360;
     start = fmodf(start, 360);
     end = fmodf(end, 360);
-    if (start < 0) start += 360.0f;
-    if (end < 0) end += 360.0f;
-
+    if (start < 0.0f) start = fmodf(start + 360.0f, 360);
+    if (end < 0.0f) end = fmodf(end + 360.0f, 360);
     startWrite();
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, start, start);
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, end, end);
-    if (!equal && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
+    if (ring && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
     fill_arc_helper(x, y, r0x, r0x, r0y, r0y, start, end);
     fill_arc_helper(x, y, r1x, r1x, r1y, r1y, start, end);
     endWrite();
@@ -949,12 +948,12 @@ namespace lgfx
     if (r1x < 0) return;
     if (r1y < 0) return;
 
-    bool equal = fabsf(start - end) < std::numeric_limits<float>::epsilon();
+    bool ring = fabsf(start - end) >= 360;
     start = fmodf(start, 360);
     end = fmodf(end, 360);
-    if (start < 0) start += 360.0f;
-    if (end < 0) end += 360.0f;
-    if (!equal && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
+    if (start < 0.0f) start = fmodf(start + 360.0f, 360);
+    if (end < 0.0f) end = fmodf(end + 360.0f, 360);
+    if (ring && (fabsf(start - end) <= 0.0001f)) { start = .0f; end = 360.0f; }
 
     startWrite();
     fill_arc_helper(x, y, r0x, r1x, r0y, r1y, start, end);
@@ -1361,10 +1360,10 @@ namespace lgfx
       if (left < right)
       {
         pc->src_x32 = iA[2] + left * iA[0];
-        if (static_cast<uint32_t>(pc->src_x) < pc->src_width)
+        if (static_cast<uint32_t>(pc->src_x) < static_cast<uint32_t>(pc->src_width))
         {
           pc->src_y32 = iA[5] + left * iA[3];
-          if (static_cast<uint32_t>(pc->src_y) < pc->src_height)
+          if (static_cast<uint32_t>(pc->src_y) < static_cast<uint32_t>(pc->src_height))
           {
             pc->src_x32_add = iA[0];
             pc->src_y32_add = iA[3];
@@ -1498,10 +1497,24 @@ namespace lgfx
       _panel->copyRect(dst_x, dst_y, w, h, src_x, src_y);
     }
 
-    if (     dx > 0) writeFillRectPreclipped(_sx           , dst_y,  dx, h);
-    else if (dx < 0) writeFillRectPreclipped(_sx + _sw + dx, dst_y, -dx, h);
-    if (     dy > 0) writeFillRectPreclipped(_sx, _sy           , _sw,  dy);
-    else if (dy < 0) writeFillRectPreclipped(_sx, _sy + _sh + dy, _sw, -dy);
+    int_fast16_t sx = _sx;
+    if (dy != 0)
+    {
+      int_fast16_t sy = _sy;
+      if (dy < 0) {
+        sy += _sh + dy;
+        dy = -dy;
+      }
+      writeFillRectPreclipped(sx, sy, _sw,  dy);
+    }
+    if (dx != 0)
+    {
+      if (dx < 0) {
+        sx += _sw + dx;
+        dx = -dx;
+      }
+      writeFillRectPreclipped(sx, dst_y,  dx, h);
+    }
     endWrite();
   }
 
@@ -2131,7 +2144,6 @@ namespace lgfx
     //_decoderState = utf8_decode_state_t::utf8_state0;
 
     font->getDefaultMetric(&_font_metrics);
-
   }
 
   /// load VLW font
@@ -2139,6 +2151,39 @@ namespace lgfx
   {
     _font_data.set(array);
     return load_font(&_font_data);
+  }
+
+  bool LGFXBase::load_font_with_path(const char *path)
+  {
+    this->unloadFont();
+
+    if (this->_font_file.get() == nullptr) return false;
+
+    this->prepareTmpTransaction(this->_font_file.get());
+    this->_font_file->preRead();
+
+    bool result = this->_font_file->open(path);
+    if (!result)
+    {
+      size_t alloclen = strlen(path) + 8;
+      auto filename = (char*)alloca(alloclen);
+      memset(filename, 0, alloclen);
+      filename[0] = '/';
+
+      strcpy(&filename[1], &path[(path[0] == '/') ? 1 : 0]);
+      int len = strlen(filename);
+      if (memcmp(&filename[len - 4], ".vlw", 4))
+      {
+        strcpy(&filename[len], ".vlw");
+      }
+      result = this->_font_file->open(filename);
+    }
+
+    if (result) {
+      result = this->load_font(this->_font_file.get());
+    }
+    this->_font_file->postRead();
+    return result;
   }
 
   bool LGFXBase::load_font(lgfx::DataWrapper* data)
@@ -2243,30 +2288,37 @@ namespace lgfx
       y = (height() - w) >> 1;
     }
 
-    setColor(0xFFFFFFU);
-    startWrite();
-    writeFillRect(x, y, w, w);
     for (; version <= 40; ++version)
     {
       QRCode qrcode;
       auto qrcodeData = (uint8_t*)alloca(lgfx_qrcode_getBufferSize(version));
       if (0 != lgfx_qrcode_initText(&qrcode, qrcodeData, version, 0, string)) continue;
       int_fast16_t thickness = w / qrcode.size;
-      if (!thickness) break;
       int_fast16_t lineLength = qrcode.size * thickness;
-      int_fast16_t xOffset = x + ((w - lineLength) >> 1);
-      int_fast16_t yOffset = y + ((w - lineLength) >> 1);
-      setColor(0);
-      y = 0;
-      do {
-        x = 0;
+      int_fast16_t offset = (w - lineLength) >> 1;
+      startWrite();
+      writeFillRect(x, y, w, offset, TFT_WHITE);
+      int_fast16_t dy = y + offset;
+      if (thickness)
+      {
+        int_fast16_t iy = 0;
         do {
-          if (lgfx_qrcode_getModule(&qrcode, x, y)) writeFillRect(x * thickness + xOffset, y * thickness + yOffset, thickness, thickness);
-        } while (++x < qrcode.size);
-      } while (++y < qrcode.size);
+          writeFillRect(x, dy, offset, thickness, TFT_WHITE);
+          int_fast16_t ix = 0;
+          int_fast16_t dx = x + offset;
+          do {
+            setColor(lgfx_qrcode_getModule(&qrcode, ix, iy) ? TFT_BLACK : TFT_WHITE);
+            writeFillRect(dx, dy, thickness, thickness);
+            dx += thickness;
+          } while (++ix < qrcode.size);
+          writeFillRect(dx, dy, x + w - dx, thickness, TFT_WHITE);
+          dy += thickness;
+        } while (++iy < qrcode.size);
+      }
+      writeFillRect(x, dy, w, y + w - dy, TFT_WHITE);
+      endWrite();
       break;
     }
-    endWrite();
   }
 
 //----------------------------------------------------------------------------
@@ -2936,9 +2988,24 @@ namespace lgfx
     }
   }
 
+
+  static pngle_t* pngle = nullptr;
+  void LGFXBase::releasePngMemory(void)
+  {
+    if (pngle) {
+      lgfx_pngle_destroy(pngle);
+      pngle = nullptr;
+    }
+  }
+
   bool LGFXBase::draw_png(DataWrapper* data, int32_t x, int32_t y, int32_t maxWidth, int32_t maxHeight, int32_t offX, int32_t offY, float zoom_x, float zoom_y, datum_t datum)
   {
-    pngle_t *pngle = lgfx_pngle_new();
+    /// PNG描画を繰り返し使用した場合、pngleのメモリ確保に失敗するケースがある。
+    /// そのため、pngle使用後に解放せず、再利用できる構成に変更した。
+    /// メモリを明示的に解放したい場合は releasePngMemory を使用する。
+    if (pngle == nullptr) {
+      pngle = lgfx_pngle_new();
+    }
     if (pngle == nullptr) { return false; }
 
     prepareTmpTransaction(data);
@@ -2948,7 +3015,6 @@ namespace lgfx
 
     if (lgfx_pngle_prepare(pngle, image_decoder_t::read_data, &png) < 0)
     {
-      lgfx_pngle_destroy(pngle);
       return false;
     }
 
@@ -2964,7 +3030,6 @@ namespace lgfx
                   , datum
                   , lgfx_pngle_get_width(pngle), lgfx_pngle_get_height(pngle)))
     {
-      lgfx_pngle_destroy(pngle);
       return true;
     }
 
@@ -2993,7 +3058,6 @@ namespace lgfx
       heap_free(png.lineBuffer);
     }
     png.end();
-    lgfx_pngle_destroy(pngle);
 
     return res < 0 ? false : true;
   }

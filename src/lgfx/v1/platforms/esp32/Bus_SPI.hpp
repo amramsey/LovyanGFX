@@ -19,10 +19,16 @@ Contributors:
 
 #include <string.h>
 
-#if __has_include(<rom/lldesc.h>)
- #include <rom/lldesc.h>
-#else
+#if defined (CONFIG_IDF_TARGET_ESP32S3) && __has_include(<esp32s3/rom/lldesc.h>)
+ #include <esp32s3/rom/lldesc.h>
+#elif defined (CONFIG_IDF_TARGET_ESP32S2) && __has_include(<esp32s2/rom/lldesc.h>)
+ #include <esp32s2/rom/lldesc.h>
+#elif defined (CONFIG_IDF_TARGET_ESP32C3) && __has_include(<esp32c3/rom/lldesc.h>)
+ #include <esp32c3/rom/lldesc.h>
+#elif __has_include(<esp32/rom/lldesc.h>)
  #include <esp32/rom/lldesc.h>
+#else
+ #include <rom/lldesc.h>
 #endif
 
 #if __has_include(<esp_private/spi_common_internal.h>)
@@ -58,7 +64,7 @@ namespace lgfx
 
   class Bus_SPI : public IBus
   {
-#if !defined (SPI_MOSI_DLEN_REG)
+#if defined ( SPI_UPDATE )
     static constexpr uint32_t SPI_EXECUTE = SPI_USR | SPI_UPDATE;
     #define SPI_MOSI_DLEN_REG(i) (REG_SPI_BASE(i) + 0x1C)
     #define SPI_MISO_DLEN_REG(i) (REG_SPI_BASE(i) + 0x1C)

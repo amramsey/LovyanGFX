@@ -12,6 +12,7 @@ namespace lgfx
     , board_M5StackCore2
     , board_M5StickC
     , board_M5StickCPlus
+    , board_M5StickCPlus2
     , board_TTGO_TS
     , board_TTGO_TWatch
     , board_TTGO_TWristband
@@ -39,6 +40,7 @@ namespace lgfx
     , board_ESPboy
     , board_M5UnitLCD
     , board_M5UnitOLED
+    , board_M5UnitGLASS
     , board_M5AtomDisplay
     , board_FeatherM4_HX8357
     , board_ESP32_S3_BOX
